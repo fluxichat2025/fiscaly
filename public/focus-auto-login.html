@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Focus NFe - Login Automático</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        .loading-container {
+            text-align: center;
+            padding: 40px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #00ff00;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status {
+            margin: 10px 0;
+            color: #666;
+        }
+        .error {
+            color: #ff0000;
+            margin-top: 20px;
+        }
+        .success {
+            color: #00aa00;
+        }
+        #loginForm {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-container">
+        <div class="spinner"></div>
+        <h2>Fazendo login na Focus NFe...</h2>
+        <div class="status" id="status">Iniciando processo de login...</div>
+        
+        <!-- Formulário oculto para login automático -->
+        <form id="loginForm" method="POST" action="https://app-v2.focusnfe.com.br/login" target="loginFrame">
+            <input type="email" name="email" value="contato@fluxiwave.com.br">
+            <input type="password" name="password" value="Gpv@162017">
+            <input type="hidden" name="_token" id="csrfToken">
+        </form>
+        
+        <!-- Frame oculto para processar login -->
+        <iframe id="loginFrame" name="loginFrame" style="display: none;"></iframe>
+    </div>
+
+    <script>
+        let statusElement = document.getElementById('status');
+        let loginForm = document.getElementById('loginForm');
+        let loginFrame = document.getElementById('loginFrame');
+        
+        function updateStatus(message, isError = false, isSuccess = false) {
+            statusElement.textContent = message;
+            statusElement.className = 'status' + (isError ? ' error' : '') + (isSuccess ? ' success' : '');
+            console.log(message);
+        }
+
+        function performAutoLogin() {
+            updateStatus('Preparando login automático...');
+
+            // Criar iframe oculto para carregar a página de login
+            const loginIframe = document.createElement('iframe');
+            loginIframe.style.display = 'none';
+            loginIframe.src = 'https://app-v2.focusnfe.com.br/login';
+
+            loginIframe.onload = function() {
+                try {
+                    updateStatus('Página de login carregada, processando...');
+
+                    // Tentar acessar o conteúdo do iframe
+                    const iframeDoc = loginIframe.contentDocument || loginIframe.contentWindow.document;
+
+                    if (iframeDoc) {
+                        // Procurar pelo token CSRF
+                        const tokenInput = iframeDoc.querySelector('input[name="_token"]');
+                        const emailInput = iframeDoc.querySelector('input[name="email"], input[type="email"]');
+                        const passwordInput = iframeDoc.querySelector('input[name="password"], input[type="password"]');
+                        const submitButton = iframeDoc.querySelector('button[type="submit"], input[type="submit"]');
+
+                        if (tokenInput && emailInput && passwordInput && submitButton) {
+                            updateStatus('Preenchendo credenciais...');
+
+                            // Preencher os campos
+                            emailInput.value = 'contato@fluxiwave.com.br';
+                            passwordInput.value = 'Gpv@162017';
+
+                            // Disparar eventos
+                            emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+                            updateStatus('Fazendo login...');
+
+                            // Submeter o formulário
+                            setTimeout(() => {
+                                submitButton.click();
+
+                                // Aguardar e redirecionar
+                                setTimeout(() => {
+                                    updateStatus('Redirecionando para empresas...', false, true);
+                                    window.location.href = 'https://app-v2.focusnfe.com.br/minhas_empresas/empresas';
+                                }, 3000);
+                            }, 1000);
+                        } else {
+                            throw new Error('Elementos do formulário não encontrados');
+                        }
+                    } else {
+                        throw new Error('Não foi possível acessar o conteúdo da página');
+                    }
+                } catch (error) {
+                    console.error('Erro ao processar login:', error);
+                    updateStatus('Tentativa alternativa...', false, false);
+
+                    // Método alternativo: redirecionar diretamente
+                    setTimeout(() => {
+                        updateStatus('Redirecionando para Focus NFe...');
+                        window.location.href = 'https://app-v2.focusnfe.com.br/minhas_empresas/empresas';
+                    }, 2000);
+                }
+            };
+
+            loginIframe.onerror = function() {
+                updateStatus('Erro ao carregar página, redirecionando...', true);
+                setTimeout(() => {
+                    window.location.href = 'https://app-v2.focusnfe.com.br/minhas_empresas/empresas';
+                }, 2000);
+            };
+
+            document.body.appendChild(loginIframe);
+        }
+
+        // Função simplificada para redirecionar diretamente
+        function redirectToFocusNFe() {
+            updateStatus('Redirecionando para Focus NFe...');
+            updateStatus('Por favor, faça login com: contato@fluxiwave.com.br', false, false);
+
+            setTimeout(() => {
+                window.location.href = 'https://app-v2.focusnfe.com.br/minhas_empresas/empresas';
+            }, 3000);
+        }
+
+        // Iniciar redirecionamento quando a página carregar
+        window.addEventListener('load', () => {
+            setTimeout(redirectToFocusNFe, 1000);
+        });
+
+        // Listener para quando o frame de login carregar
+        loginFrame.addEventListener('load', () => {
+            updateStatus('Resposta de login recebida...');
+        });
+    </script>
+</body>
+</html>

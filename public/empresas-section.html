@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pesquisa de Empresas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 24px;
+        }
+
+        .search-section {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            align-items: end;
+        }
+
+        .form-group {
+            flex: 1;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+
+        .select-wrapper {
+            position: relative;
+        }
+
+        .select-wrapper::after {
+            content: '▼';
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+            color: #666;
+            font-size: 12px;
+        }
+
+        select.form-control {
+            appearance: none;
+            background: white;
+            cursor: pointer;
+            padding-right: 40px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-outline {
+            background: white;
+            color: #ff6b35;
+            border: 1px solid #ff6b35;
+        }
+
+        .btn-outline:hover {
+            background: #ff6b35;
+            color: white;
+        }
+
+        .btn-primary {
+            background: #ff6b35;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #e55a2b;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 32px 0 16px 0;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #ff6b35;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .btn-add {
+            background: #ff6b35;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 16px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        td {
+            font-size: 14px;
+            color: #333;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            color: white;
+        }
+
+        .status-valid {
+            background: #28a745;
+        }
+
+        .btn-table {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            text-decoration: none;
+            margin-right: 4px;
+        }
+
+        .btn-edit {
+            background: #ff6b35;
+            color: white;
+        }
+
+        .btn-exclude {
+            background: #6c757d;
+            color: white;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 24px;
+            gap: 8px;
+        }
+
+        .page-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .page-btn.active {
+            background: #ff6b35;
+            color: white;
+            border-color: #ff6b35;
+        }
+
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-modal {
+            background: white;
+            padding: 32px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .login-modal h2 {
+            margin-bottom: 16px;
+            color: #333;
+        }
+
+        .login-modal p {
+            margin-bottom: 24px;
+            color: #666;
+        }
+
+        .credentials {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 6px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+
+        .credential-item {
+            margin-bottom: 8px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        .credential-label {
+            font-weight: 600;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <!-- Overlay de Login -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-modal">
+            <h2>Acesso à Focus NFe</h2>
+            <p>Para acessar a seção de empresas, faça login na Focus NFe com as credenciais abaixo:</p>
+            
+            <div class="credentials">
+                <div class="credential-item">
+                    <span class="credential-label">Email:</span> contato@fluxiwave.com.br
+                </div>
+                <div class="credential-item">
+                    <span class="credential-label">Senha:</span> Gpv@162017
+                </div>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="openFocusNFe()">
+                    Abrir Focus NFe
+                </button>
+                <button class="btn btn-outline" onclick="showDemo()">
+                    Ver Demo
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conteúdo Principal -->
+    <div class="container" id="mainContent" style="display: none;">
+        <h1>Pesquisa de Empresas</h1>
+        
+        <div class="search-section">
+            <div class="form-group">
+                <input type="text" class="form-control" placeholder="Pesquisa" value="">
+            </div>
+            <div class="form-group">
+                <div class="select-wrapper">
+                    <select class="form-control">
+                        <option>Certificado</option>
+                        <option>Válido</option>
+                        <option>Vencido</option>
+                        <option>Todos</option>
+                    </select>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-outline">LIMPAR FILTROS</button>
+                <button class="btn btn-primary">PESQUISAR</button>
+            </div>
+        </div>
+
+        <div class="section-header">
+            <span class="section-title">Empresas</span>
+            <button class="btn-add">ADICIONAR EMPRESA</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Nome Fantasia</th>
+                        <th>CNPJ/CPF</th>
+                        <th>Última Emissão</th>
+                        <th>Certificado</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>SPLENDOR POOL LTDA</td>
+                        <td>Sendoor Pool LTDA</td>
+                        <td>44.357.808/0001-04</td>
+                        <td>Não há emissão</td>
+                        <td><span class="status-badge status-valid">VÁLIDO ATÉ 13/09/2025</span></td>
+                        <td>
+                            <a href="#" class="btn-table btn-edit">EDITAR</a>
+                            <a href="#" class="btn-table btn-exclude">EXCLUIR</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>STUDIO REIS CENTRO DE SAÚDE...</td>
+                        <td>STUDIO REIS CENTRO DE SAÚDE...</td>
+                        <td>45.730.162/0001-13</td>
+                        <td>16/07/2025 17:43</td>
+                        <td><span class="status-badge status-valid">VÁLIDO ATÉ 09/04/2026</span></td>
+                        <td>
+                            <a href="#" class="btn-table btn-edit">EDITAR</a>
+                            <a href="#" class="btn-table btn-exclude">EXCLUIR</a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination">
+            <div class="page-btn active">1</div>
+            <div class="page-btn">></div>
+        </div>
+    </div>
+
+    <script>
+        function openFocusNFe() {
+            window.open('https://app-v2.focusnfe.com.br/minhas_empresas/empresas', '_blank');
+        }
+
+        function showDemo() {
+            document.getElementById('loginOverlay').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+        }
+
+        // Mostrar overlay por padrão
+        document.getElementById('loginOverlay').style.display = 'flex';
+    </script>
+</body>
+</html>
