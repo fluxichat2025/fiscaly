@@ -321,7 +321,86 @@ export function useFocusNFeAPI() {
     return false;
   };
 
-  // Função para buscar todas as empresas com cache
+  // Função principal para carregar empresas (nova estratégia)
+  const carregarEmpresas = async (): Promise<EmpresaListItem[]> => {
+    setLoading(true);
+    setError(null);
+
+    const now = Date.now();
+
+    // Verificar cache primeiro
+    if (empresasCache.length > 0 && (now - cacheTimestamp) < CACHE_DURATION) {
+      console.log('📦 Usando dados do cache');
+      setEmpresas(empresasCache);
+      setLoading(false);
+      return empresasCache;
+    }
+
+    try {
+      // Estratégia 1: Tentar carregar do Supabase primeiro (mais confiável)
+      console.log('🏢 Tentando carregar empresas do Supabase...');
+      const empresasSupabase = await buscarEmpresasSupabase();
+
+      if (empresasSupabase && empresasSupabase.length > 0) {
+        console.log('✅ Empresas carregadas do Supabase:', empresasSupabase.length);
+
+        const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => ({
+          id: empresa.id ? empresa.id.toString() : Math.random().toString(),
+          nome: empresa.razao_social || 'Nome não informado',
+          nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
+          cnpj_cpf: empresa.cnpj || 'CNPJ não informado',
+          ultima_emissao: null,
+          certificado_status: null,
+          actions: ['EDITAR', 'EXCLUIR']
+        }));
+
+        empresasCache = empresasFormatadas;
+        cacheTimestamp = now;
+        setEmpresas(empresasFormatadas);
+
+        toast({
+          title: "Empresas carregadas",
+          description: `${empresasFormatadas.length} empresas encontradas`,
+        });
+
+        setLoading(false);
+        return empresasFormatadas;
+      }
+
+      // Estratégia 2: Se não há dados no Supabase, usar dados mock
+      console.log('⚠️ Nenhuma empresa no Supabase, usando dados de exemplo...');
+      empresasCache = MOCK_EMPRESAS;
+      cacheTimestamp = now;
+      setEmpresas(MOCK_EMPRESAS);
+
+      toast({
+        title: "Dados de exemplo carregados",
+        description: "Nenhuma empresa cadastrada. Mostrando dados de exemplo.",
+      });
+
+      setLoading(false);
+      return MOCK_EMPRESAS;
+
+    } catch (error) {
+      console.error('❌ Erro ao carregar empresas:', error);
+
+      // Fallback final: usar dados mock
+      empresasCache = MOCK_EMPRESAS;
+      cacheTimestamp = now;
+      setEmpresas(MOCK_EMPRESAS);
+      setError(null); // Não mostrar erro, já que temos dados mock
+
+      toast({
+        title: "Dados de exemplo carregados",
+        description: "Erro ao carregar dados. Mostrando dados de exemplo.",
+      });
+
+      setLoading(false);
+      return MOCK_EMPRESAS;
+    }
+  };
+
+  // Função para buscar todas as empresas com cache (mantida para compatibilidade)
   const fetchEmpresas = async () => {
     // Verificar se há cache válido
     const now = Date.now();
@@ -353,6 +432,42 @@ export function useFocusNFeAPI() {
         });
 
         return MOCK_EMPRESAS;
+      }
+
+      // NOVA ESTRATÉGIA: Em produção, tentar Supabase primeiro
+      const isProduction = window.location.hostname !== 'localhost';
+
+      if (isProduction) {
+        console.log('🏢 Ambiente de produção detectado, carregando do Supabase...');
+        try {
+          const empresasSupabase = await buscarEmpresasSupabase();
+          if (empresasSupabase && empresasSupabase.length > 0) {
+            console.log('✅ Empresas carregadas do Supabase:', empresasSupabase.length);
+
+            const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => ({
+              id: empresa.id ? empresa.id.toString() : Math.random().toString(),
+              nome: empresa.razao_social || 'Nome não informado',
+              nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
+              cnpj_cpf: empresa.cnpj || 'CNPJ não informado',
+              ultima_emissao: null,
+              certificado_status: null,
+              actions: ['EDITAR', 'EXCLUIR']
+            }));
+
+            empresasCache = empresasFormatadas;
+            cacheTimestamp = now;
+            setEmpresas(empresasFormatadas);
+
+            toast({
+              title: "Empresas carregadas",
+              description: `${empresasFormatadas.length} empresas encontradas no banco de dados`,
+            });
+
+            return empresasFormatadas;
+          }
+        } catch (supabaseError) {
+          console.log('⚠️ Erro ao carregar do Supabase, tentando Focus NFe...', supabaseError);
+        }
       }
 
       // Verificar se API está disponível antes de tentar
