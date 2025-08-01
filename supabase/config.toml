@@ -19,7 +19,7 @@ max_client_conn = 100
 
 [realtime]
 enabled = true
-ip_version = "ipv4"
+ip_version = "IPv4"
 
 [studio]
 enabled = true
@@ -35,14 +35,15 @@ pop3_port = 54326
 [storage]
 enabled = true
 file_size_limit = "50MiB"
-image_transformation = true
+
+[storage.image_transformation]
+enabled = true
 
 [auth]
 enabled = true
 additional_redirect_urls = ["https://yoeeobnzifhhkrwrhctv.supabase.co/**"]
 jwt_expiry = 3600
 enable_signup = true
-external_anonymous_users_enabled = true
 
 [auth.email]
 enable_signup = true
@@ -60,3 +61,6 @@ verify_jwt = false
 
 [functions.focus-nfe-api]
 verify_jwt = true
+
+[functions.focus-empresas]
+verify_jwt = false
