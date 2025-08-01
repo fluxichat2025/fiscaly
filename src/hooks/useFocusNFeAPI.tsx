@@ -360,9 +360,41 @@ export function useFocusNFeAPI() {
       const apiAvailable = await checkApiStatus();
 
       if (!apiAvailable) {
-        console.log('🎭 API indisponível, usando dados mock como fallback');
+        console.log('🎭 API indisponível, tentando carregar do Supabase...');
 
-        // Usar dados mock como fallback
+        // Tentar carregar do Supabase como fallback
+        try {
+          const empresasSupabase = await buscarEmpresasSupabase();
+          if (empresasSupabase && empresasSupabase.length > 0) {
+            console.log('✅ Empresas carregadas do Supabase:', empresasSupabase.length);
+
+            const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => ({
+              id: empresa.id ? empresa.id.toString() : Math.random().toString(),
+              nome: empresa.razao_social || 'Nome não informado',
+              nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
+              cnpj_cpf: empresa.cnpj || 'CNPJ não informado',
+              ultima_emissao: null,
+              certificado_status: null,
+              actions: ['EDITAR', 'EXCLUIR']
+            }));
+
+            empresasCache = empresasFormatadas;
+            cacheTimestamp = now;
+            setEmpresas(empresasFormatadas);
+
+            toast({
+              title: "Empresas carregadas do banco local",
+              description: `${empresasFormatadas.length} empresas encontradas (API Focus NFe indisponível)`,
+            });
+
+            return empresasFormatadas;
+          }
+        } catch (supabaseError) {
+          console.error('❌ Erro ao carregar do Supabase:', supabaseError);
+        }
+
+        // Se Supabase também falhar, usar dados mock
+        console.log('🎭 Usando dados mock como último recurso');
         empresasCache = MOCK_EMPRESAS;
         cacheTimestamp = now;
 
@@ -386,9 +418,40 @@ export function useFocusNFeAPI() {
       const empresasArray = Array.isArray(data) ? data : [];
 
       if (empresasArray.length === 0) {
-        console.log('⚠️ Nenhuma empresa encontrada na API');
+        console.log('⚠️ Nenhuma empresa encontrada na API Focus NFe, tentando Supabase...');
 
-        // Se não há empresas cadastradas, usar dados mock como exemplo
+        // Tentar carregar do Supabase
+        try {
+          const empresasSupabase = await buscarEmpresasSupabase();
+          if (empresasSupabase && empresasSupabase.length > 0) {
+            console.log('✅ Empresas carregadas do Supabase:', empresasSupabase.length);
+
+            const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => ({
+              id: empresa.id ? empresa.id.toString() : Math.random().toString(),
+              nome: empresa.razao_social || 'Nome não informado',
+              nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
+              cnpj_cpf: empresa.cnpj || 'CNPJ não informado',
+              ultima_emissao: null,
+              certificado_status: null,
+              actions: ['EDITAR', 'EXCLUIR']
+            }));
+
+            empresasCache = empresasFormatadas;
+            cacheTimestamp = now;
+            setEmpresas(empresasFormatadas);
+
+            toast({
+              title: "Empresas carregadas do banco local",
+              description: `${empresasFormatadas.length} empresas encontradas`,
+            });
+
+            return empresasFormatadas;
+          }
+        } catch (supabaseError) {
+          console.error('❌ Erro ao carregar do Supabase:', supabaseError);
+        }
+
+        // Se não há empresas nem no Supabase, usar dados mock
         empresasCache = MOCK_EMPRESAS;
         cacheTimestamp = now;
 
@@ -396,7 +459,7 @@ export function useFocusNFeAPI() {
 
         toast({
           title: "Nenhuma empresa cadastrada",
-          description: "Não há empresas cadastradas na API. Mostrando dados de exemplo.",
+          description: "Não há empresas cadastradas. Mostrando dados de exemplo.",
         });
 
         return MOCK_EMPRESAS;
@@ -428,11 +491,45 @@ export function useFocusNFeAPI() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
 
-      // Se erro 429 ou API indisponível, fazer fallback para dados mock
-      if (errorMessage.includes('Limite de requisições excedido') || errorMessage.includes('429')) {
-        console.log('🎭 API indisponível, usando dados mock como fallback');
+      console.log('❌ Erro ao carregar da API Focus NFe:', errorMessage);
 
-        // Usar dados mock como fallback
+      // Tentar carregar do Supabase como fallback para qualquer erro
+      try {
+        console.log('🔄 Tentando carregar do Supabase como fallback...');
+        const empresasSupabase = await buscarEmpresasSupabase();
+        if (empresasSupabase && empresasSupabase.length > 0) {
+          console.log('✅ Empresas carregadas do Supabase como fallback:', empresasSupabase.length);
+
+          const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => ({
+            id: empresa.id ? empresa.id.toString() : Math.random().toString(),
+            nome: empresa.razao_social || 'Nome não informado',
+            nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
+            cnpj_cpf: empresa.cnpj || 'CNPJ não informado',
+            ultima_emissao: null,
+            certificado_status: null,
+            actions: ['EDITAR', 'EXCLUIR']
+          }));
+
+          empresasCache = empresasFormatadas;
+          cacheTimestamp = now;
+          setEmpresas(empresasFormatadas);
+          setError(null); // Limpar erro já que conseguimos dados do Supabase
+
+          toast({
+            title: "Empresas carregadas do banco local",
+            description: `${empresasFormatadas.length} empresas encontradas (API Focus NFe com problemas)`,
+          });
+
+          return empresasFormatadas;
+        }
+      } catch (supabaseError) {
+        console.error('❌ Erro ao carregar do Supabase também:', supabaseError);
+      }
+
+      // Se erro 429 ou API indisponível, usar dados mock
+      if (errorMessage.includes('Limite de requisições excedido') || errorMessage.includes('429')) {
+        console.log('🎭 Usando dados mock como último recurso');
+
         empresasCache = MOCK_EMPRESAS;
         cacheTimestamp = now;
 
@@ -447,15 +544,16 @@ export function useFocusNFeAPI() {
         return MOCK_EMPRESAS;
       }
 
-      // Para outros erros, mostrar mensagem de erro
+      // Para outros erros, mostrar mensagem de erro mas não fazer throw
       setError(errorMessage);
       toast({
         variant: "destructive",
         title: "Erro ao carregar empresas",
-        description: errorMessage,
+        description: `${errorMessage}. Verifique sua conexão e tente novamente.`,
       });
 
-      throw err;
+      // Retornar array vazio em vez de fazer throw para não quebrar a interface
+      return [];
     } finally {
       setLoading(false);
     }

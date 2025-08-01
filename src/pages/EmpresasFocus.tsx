@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, Plus, Edit, Trash2, FileText, Calendar, Building, Loader2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import EmpresaFormFocus from '@/components/EmpresaFormFocus';
+import FocusNFeDiagnostic from '@/components/FocusNFeDiagnostic';
 import { useFocusNFeAPI, EmpresaListItem } from '@/hooks/useFocusNFeAPI';
 
 export default function EmpresasFocus() {
@@ -30,8 +31,24 @@ export default function EmpresasFocus() {
   const [editingEmpresa, setEditingEmpresa] = useState<EmpresaListItem | null>(null);
   const { toast } = useToast();
 
-  // REMOVIDO: useEffect automático que fazia chamadas à Focus NFe
-  // As empresas agora são carregadas apenas quando o usuário clicar no botão "Sincronizar"
+  // Carregar empresas automaticamente quando a página é acessada
+  useEffect(() => {
+    const carregarEmpresasInicial = async () => {
+      try {
+        console.log('🏢 Carregando empresas automaticamente...');
+        await carregarEmpresas();
+      } catch (error) {
+        console.error('❌ Erro no carregamento inicial:', error);
+        // Em caso de erro, tentar carregar do Supabase como fallback
+        toast({
+          title: "Carregando dados locais",
+          description: "Usando dados do banco local como fallback",
+        });
+      }
+    };
+
+    carregarEmpresasInicial();
+  }, []); // Executar apenas uma vez ao montar o componente
 
   // Filtrar empresas
   useEffect(() => {
@@ -132,20 +149,77 @@ export default function EmpresasFocus() {
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefreshEmpresas}
-          disabled={loading}
-          className="text-orange-600 border-orange-200 hover:bg-orange-50"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Atualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshEmpresas}
+            disabled={loading}
+            className="text-orange-600 border-orange-200 hover:bg-orange-50"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Atualizar
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              console.log('🔍 Testando API Focus NFe...');
+              toast({
+                title: "Testando API",
+                description: "Verificando conectividade com Focus NFe...",
+              });
+
+              try {
+                const TOKEN_PRODUCAO = 'QiCgQ0fQMu5RDfEqnVMWKruRjhJePCoe';
+                const auth = btoa(`${TOKEN_PRODUCAO}:`);
+
+                const response = await fetch('/api/focusnfe/v2/empresas', {
+                  method: 'GET',
+                  headers: {
+                    'Authorization': `Basic ${auth}`,
+                    'Content-Type': 'application/json',
+                  },
+                });
+
+                console.log('Status:', response.status);
+
+                if (response.ok) {
+                  const data = await response.json();
+                  console.log('✅ API funcionando:', data);
+                  toast({
+                    title: "API funcionando!",
+                    description: `Status: ${response.status}. Empresas: ${Array.isArray(data) ? data.length : 'N/A'}`,
+                  });
+                } else {
+                  const errorText = await response.text();
+                  console.log('❌ Erro na API:', errorText);
+                  toast({
+                    variant: "destructive",
+                    title: "Erro na API",
+                    description: `Status: ${response.status}. ${errorText.substring(0, 100)}`,
+                  });
+                }
+              } catch (error) {
+                console.error('❌ Erro:', error);
+                toast({
+                  variant: "destructive",
+                  title: "Erro de conexão",
+                  description: error instanceof Error ? error.message : 'Erro desconhecido',
+                });
+              }
+            }}
+            disabled={loading}
+            className="text-blue-600 border-blue-200 hover:bg-blue-50"
+          >
+            Testar API
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -202,6 +276,9 @@ export default function EmpresasFocus() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Diagnóstico da API */}
+      <FocusNFeDiagnostic />
 
       {/* Mensagem de Erro */}
       {error && (
