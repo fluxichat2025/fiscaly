@@ -151,7 +151,11 @@ export interface CNPJData {
   data_situacao_especial: string;
 }
 
-const FOCUS_NFE_API_BASE = import.meta.env.VITE_FOCUS_NFE_API_BASE || '/api/focusnfe/v2';
+// Detectar ambiente e configurar URL base adequada
+const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+const FOCUS_NFE_API_BASE = isProduction
+  ? 'https://api.focusnfe.com.br/v2' // URL direta em produção (pode dar CORS, mas tentaremos)
+  : (import.meta.env.VITE_FOCUS_NFE_API_BASE || '/api/focusnfe/v2'); // Proxy em desenvolvimento
 const TOKEN_PRODUCAO = import.meta.env.VITE_FOCUS_NFE_TOKEN_PRODUCAO || 'QiCgQ0fQMu5RDfEqnVMWKruRjhJePCoe';
 const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 
@@ -197,8 +201,40 @@ export function useFocusNFeAPI() {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Função para fazer requisições autenticadas para a API Focus NFe com retry
+  // Função para fazer requisições usando Supabase Edge Function (mais confiável)
+  const makeRequestViaSupabase = async (endpoint: string): Promise<any> => {
+    console.log('🔍 Fazendo requisição via Supabase Edge Function:', endpoint);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('focus-empresas', {
+        body: { endpoint }
+      });
+
+      if (error) {
+        console.error('❌ Erro na Edge Function:', error);
+        throw error;
+      }
+
+      console.log('✅ Resposta da Edge Function:', data);
+      return data;
+    } catch (error) {
+      console.error('❌ Erro ao chamar Edge Function:', error);
+      throw error;
+    }
+  };
+
+  // Função para fazer requisições autenticadas para a API Focus NFe com retry (fallback)
   const makeRequest = async (endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> => {
+    // Em produção, tentar usar Edge Function primeiro
+    if (isProduction && endpoint === '/empresas') {
+      try {
+        return await makeRequestViaSupabase(endpoint);
+      } catch (edgeFunctionError) {
+        console.log('⚠️ Edge Function falhou, tentando API direta...', edgeFunctionError);
+        // Continuar com a requisição direta como fallback
+      }
+    }
+
     const url = `${FOCUS_NFE_API_BASE}${endpoint}`;
     const maxRetries = 3;
 
@@ -321,7 +357,7 @@ export function useFocusNFeAPI() {
     return false;
   };
 
-  // Função principal para carregar empresas (nova estratégia)
+  // Função principal para carregar empresas (estratégia robusta)
   const carregarEmpresas = async (): Promise<EmpresaListItem[]> => {
     setLoading(true);
     setError(null);
@@ -336,9 +372,12 @@ export function useFocusNFeAPI() {
       return empresasCache;
     }
 
+    console.log('🌍 Ambiente detectado:', isProduction ? 'Produção' : 'Desenvolvimento');
+    console.log('🔗 URL da API:', FOCUS_NFE_API_BASE);
+
     try {
-      // Estratégia 1: Tentar carregar do Supabase primeiro (mais confiável)
-      console.log('🏢 Tentando carregar empresas do Supabase...');
+      // ESTRATÉGIA PRINCIPAL: Sempre tentar Supabase primeiro (mais confiável)
+      console.log('🏢 Carregando empresas do Supabase...');
       const empresasSupabase = await buscarEmpresasSupabase();
 
       if (empresasSupabase && empresasSupabase.length > 0) {
@@ -359,7 +398,7 @@ export function useFocusNFeAPI() {
         setEmpresas(empresasFormatadas);
 
         toast({
-          title: "Empresas carregadas",
+          title: "Empresas carregadas do banco",
           description: `${empresasFormatadas.length} empresas encontradas`,
         });
 
@@ -367,15 +406,15 @@ export function useFocusNFeAPI() {
         return empresasFormatadas;
       }
 
-      // Estratégia 2: Se não há dados no Supabase, usar dados mock
+      // Se não há dados no Supabase, usar dados mock
       console.log('⚠️ Nenhuma empresa no Supabase, usando dados de exemplo...');
       empresasCache = MOCK_EMPRESAS;
       cacheTimestamp = now;
       setEmpresas(MOCK_EMPRESAS);
 
       toast({
-        title: "Dados de exemplo carregados",
-        description: "Nenhuma empresa cadastrada. Mostrando dados de exemplo.",
+        title: "Dados de exemplo",
+        description: "Nenhuma empresa cadastrada. Mostrando dados de exemplo para demonstração.",
       });
 
       setLoading(false);
@@ -384,7 +423,7 @@ export function useFocusNFeAPI() {
     } catch (error) {
       console.error('❌ Erro ao carregar empresas:', error);
 
-      // Fallback final: usar dados mock
+      // Fallback final: sempre usar dados mock para não quebrar a interface
       empresasCache = MOCK_EMPRESAS;
       cacheTimestamp = now;
       setEmpresas(MOCK_EMPRESAS);
@@ -392,7 +431,7 @@ export function useFocusNFeAPI() {
 
       toast({
         title: "Dados de exemplo carregados",
-        description: "Erro ao carregar dados. Mostrando dados de exemplo.",
+        description: "Erro ao conectar com o banco. Mostrando dados de exemplo.",
       });
 
       setLoading(false);
