@@ -7,11 +7,107 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, AlertTriangle, Building, User } from 'lucide-react';
+import { FileText, AlertTriangle, Building, User, CheckCircle, XCircle, Loader2, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { createFocusNFeClient } from '@/integrations/focusnfe/client';
+
+const TOKEN_PRODUCAO = 'QiCgQ0fQMu5RDfEqnVMWKruRjhJePCoe';
+
 
 const EmitirNFe = () => {
   const [activeTab, setActiveTab] = useState('destinatario');
+  const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'processing' | 'authorized' | 'error'>('idle');
+  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [ultimaResposta, setUltimaResposta] = useState<any>(null);
+
+  const client = createFocusNFeClient(TOKEN_PRODUCAO, 'producao');
+
+  const gerarRef = () => `nfe-${Date.now()}`;
+
+  const emitir = async () => {
+    try {
+      setIsLoading(true);
+      setStatus('processing');
+      setStatusMessage('Enviando NFe para processamento...');
+
+      const ref = gerarRef();
+
+      // Payload mínimo (exemplo simplificado). Ideal: montar a partir do formulário.
+      const payload: any = {
+        natureza_operacao: 'Venda',
+        destinatario: {
+          razao_social: 'Cliente Teste',
+          cpf: '00000000191'
+        },
+        itens: [
+          {
+            codigo: '001',
+            descricao: 'Produto de teste',
+            ncm: '61091000',
+            cfop: '5102',
+            quantidade: 1,
+            valor_unitario: 100.0
+          }
+        ],
+        informacoes_adicionais: 'Emissão via integração Focus NFe'
+      };
+
+      const resp = await client.emitirNFe(ref, payload);
+      setUltimaResposta(resp);
+
+      if (!resp.success) {
+        setStatus('error');
+        setStatusMessage(resp.error?.mensagem || 'Erro no envio da NFe');
+        return;
+      }
+
+      // Polling até status final
+      setStatusMessage('NFe aceita para processamento. Consultando status...');
+      let attempts = 0;
+      const maxAttempts = 40;
+      const intervalMs = 5000;
+
+      while (attempts < maxAttempts) {
+        attempts += 1;
+        await new Promise(r => setTimeout(r, intervalMs));
+        const consulta = await client.consultarNFe(ref);
+        setUltimaResposta(consulta);
+        if (!consulta.success) {
+          setStatus('error');
+          setStatusMessage(consulta.error?.mensagem || 'Erro na consulta da NFe');
+          break;
+        }
+
+        const s = (consulta.data?.status || '').toLowerCase();
+        if (['autorizado', 'cancelado', 'erro_autorizacao', 'denegado', 'rejeitado', 'erro'].includes(s)) {
+          if (s === 'autorizado') {
+            setStatus('authorized');
+            setStatusMessage('NFe autorizada com sucesso.');
+          } else {
+            setStatus('error');
+            setStatusMessage(`Status final: ${s}`);
+          }
+          break;
+        } else {
+          setStatus('processing');
+          setStatusMessage(`Processando... Tentativa ${attempts}/${maxAttempts}`);
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        setStatus('error');
+        setStatusMessage('Tempo limite excedido para autorização.');
+      }
+
+    } catch (e: any) {
+      setStatus('error');
+      setStatusMessage(e?.message || 'Erro inesperado');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   return (
     <Layout>
@@ -133,7 +229,7 @@ const EmitirNFe = () => {
                     </div>
                   </div>
                 </div>
-                
+
                 <Button variant="outline" className="w-full">
                   + Adicionar Produto
                 </Button>
@@ -178,8 +274,8 @@ const EmitirNFe = () => {
               <TabsContent value="finalizacao" className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="observacoes">Observações</Label>
-                  <Textarea 
-                    id="observacoes" 
+                  <Textarea
+                    id="observacoes"
                     placeholder="Observações adicionais da nota fiscal"
                     rows={4}
                   />
@@ -196,13 +292,46 @@ const EmitirNFe = () => {
                 </div>
 
                 <div className="flex gap-3 pt-4">
-                  <Button className="flex-1">
-                    Emitir NFe
+                  <Button className="flex-1" onClick={emitir} disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Processando...
+                      </>
+                    ) : (
+                      'Emitir NFe'
+                    )}
                   </Button>
-                  <Button variant="outline">
+                  <Button variant="outline" disabled={isLoading}>
                     Salvar Rascunho
                   </Button>
                 </div>
+
+                {/* Status da emissão */}
+                {status !== 'idle' && (
+                  <div className="mt-4 p-3 rounded border text-sm flex items-center gap-2">
+                    {status === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {status === 'authorized' && <CheckCircle className="h-4 w-4 text-green-500" />}
+                    {status === 'error' && <XCircle className="h-4 w-4 text-red-500" />}
+                    <span>{statusMessage}</span>
+                  </div>
+                )}
+
+                {/* Ações pós-autorização */}
+                {status === 'authorized' && ultimaResposta?.data && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {ultimaResposta.data.url_danfe && (
+                      <Button variant="secondary" onClick={() => window.open(ultimaResposta.data.url_danfe, '_blank')}>
+                        Ver DANFE <ExternalLink className="h-4 w-4 ml-2" />
+                      </Button>
+                    )}
+                    {ultimaResposta.data.caminho_xml_nota_fiscal && (
+                      <Button variant="outline" onClick={() => window.open(ultimaResposta.data.caminho_xml_nota_fiscal, '_blank')}>
+                        Baixar XML
+                      </Button>
+                    )}
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
           </CardContent>

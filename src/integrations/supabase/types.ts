@@ -215,6 +215,82 @@ export type Database = {
         }
         Relationships: []
       }
+      company_municipal_tax_codes: {
+        Row: {
+          id: string
+          company_id: string
+          codigo_tributario_municipio: string
+          descricao: string | null
+          ativo: boolean | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          codigo_tributario_municipio: string
+          descricao?: string | null
+          ativo?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          codigo_tributario_municipio?: string
+          descricao?: string | null
+          ativo?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_municipal_tax_codes_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      company_service_items: {
+        Row: {
+          id: string
+          company_id: string
+          item_lista_servico: string
+          descricao: string | null
+          ativo: boolean | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          item_lista_servico: string
+          descricao?: string | null
+          ativo?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          item_lista_servico?: string
+          descricao?: string | null
+          ativo?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_service_items_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       "Imóveis Plus": {
         Row: {
           area_privativa: string | null

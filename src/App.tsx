@@ -7,7 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import NotasFiscais from "./pages/NotasFiscais";
+import ConsultarNFSeSimples from "./pages/ConsultarNFSeSimples";
 import EmitirNFe from "./pages/EmitirNFe";
 import EmitirNFSe from "./pages/EmitirNFSe";
 
@@ -15,6 +15,7 @@ import CancelarInutilizar from "./pages/CancelarInutilizar";
 import Relatorios from "./pages/Relatorios";
 import EmpresasFocus from "./pages/EmpresasFocus";
 import NotFound from "./pages/NotFound";
+import Tarefas from "./pages/Tarefas";
 
 const queryClient = new QueryClient();
 
@@ -34,7 +35,7 @@ const App = () => (
             } />
             <Route path="/notas" element={
               <ProtectedRoute>
-                <NotasFiscais />
+                <ConsultarNFSeSimples />
               </ProtectedRoute>
             } />
             <Route path="/notas/nfe" element={
@@ -61,6 +62,11 @@ const App = () => (
             <Route path="/relatorios" element={
               <ProtectedRoute>
                 <Relatorios />
+              </ProtectedRoute>
+            } />
+            <Route path="/tarefas" element={
+              <ProtectedRoute>
+                <Tarefas />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

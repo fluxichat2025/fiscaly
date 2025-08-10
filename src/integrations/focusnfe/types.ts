@@ -16,7 +16,7 @@ export interface FocusNFeEmpresa {
   cpf?: string
   inscricao_estadual?: string
   inscricao_municipal?: string
-  
+
   // Endereço (campos planos conforme documentação)
   logradouro: string
   numero: string
@@ -25,20 +25,20 @@ export interface FocusNFeEmpresa {
   município: string
   uf: string
   cep: string
-  
+
   // Códigos obrigatórios
   codigo_município: string
   codigo_pais?: string // Padrão: '1058' para Brasil
   codigo_uf: string
-  
+
   // Contato
   telefone?: string
   email?: string
-  
+
   // Configurações
   regime_tributario?: string // 1=Simples Nacional, 2=Simples Excesso, 3=Regime Normal
   habilita_nfse?: boolean
-  
+
   // Certificado digital
   arquivo_certificado_base64?: string
   senha_certificado?: string
@@ -56,7 +56,7 @@ export interface FocusNFeEmpresaCreate {
   cnpj: string
   inscricao_estadual?: string
   inscricao_municipal?: string
-  
+
   // Endereço (campos planos conforme documentação)
   logradouro: string
   numero: string
@@ -65,16 +65,16 @@ export interface FocusNFeEmpresaCreate {
   município: string
   uf: string
   cep: string
-  
+
   // Códigos obrigatórios
   codigo_município: string
   codigo_pais?: string // Padrão: '1058' para Brasil
   codigo_uf: string
-  
+
   // Contato
   telefone?: string
   email?: string
-  
+
   // Configurações
   regime_tributario?: string // 1=Simples Nacional, 2=Simples Excesso, 3=Regime Normal
   habilita_nfse?: boolean
@@ -82,7 +82,7 @@ export interface FocusNFeEmpresaCreate {
   habilita_nfce?: boolean
   habilita_cte?: boolean
   habilita_mdfe?: boolean
-  
+
   // Certificado digital
   arquivo_certificado_base64?: string
   senha_certificado?: string
@@ -94,14 +94,14 @@ export interface FocusNFeNFSe {
   incentivador_cultural?: boolean
   natureza_operacao?: string
   optante_simples_nacional?: boolean
-  
+
   // Prestador (empresa)
   prestador: {
     cnpj: string
     inscricao_municipal?: string
     codigo_município: string
   }
-  
+
   // Tomador (cliente)
   tomador: {
     cnpj?: string
@@ -119,7 +119,7 @@ export interface FocusNFeNFSe {
       codigo_município?: string
     }
   }
-  
+
   // Serviço
   servicos: Array<{
     aliquota?: number
@@ -252,7 +252,7 @@ export class FocusNFeErrorClass extends Error {
 }
 
 // Tipos de eventos de webhook
-export type FocusNFeEventType = 
+export type FocusNFeEventType =
   | 'nfse.autorizada'
   | 'nfse.erro'
   | 'nfse.cancelada'
@@ -269,8 +269,73 @@ export const FOCUS_NFE_ENDPOINTS = {
   PRODUCAO: 'https://api.focusnfe.com.br'
 } as const
 
+
+// Tipos para NFe (simplificados e extensíveis)
+export interface FocusNFeNFeItem {
+  codigo: string;
+  descricao: string;
+  ncm?: string;
+  cfop?: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total?: number;
+  // Tributos (simplificado)
+  icms?: any;
+  ipi?: any;
+  pis?: any;
+  cofins?: any;
+  [k: string]: any;
+}
+
+export interface FocusNFeEmitente {
+  cnpj: string;
+  inscricao_estadual?: string;
+  regime_tributario?: string; // 1, 2, 3
+  nome?: string;
+  nome_fantasia?: string;
+  endereco?: any;
+  [k: string]: any;
+}
+
+export interface FocusNFeDestinatario {
+  cpf?: string;
+  cnpj?: string;
+  razao_social: string;
+  email?: string;
+  endereco?: any;
+  [k: string]: any;
+}
+
+export interface FocusNFeNFePayload {
+  natureza_operacao: string;
+  data_emissao?: string;
+  finalidade_emissao?: string; // 1,2,3,4
+  forma_pagamento?: string; // 0=à vista,1=a prazo
+  modalidade_frete?: number; // 0..9
+  emitente?: FocusNFeEmitente; // opcional, empresa padrão da Focus pode suprir
+  destinatario: FocusNFeDestinatario;
+  itens: FocusNFeNFeItem[];
+  totais?: any;
+  informacoes_adicionais?: string;
+  [k: string]: any;
+}
+
+export interface FocusNFeNFeResponse {
+  ref: string;
+  status: 'processando_autorizacao' | 'autorizado' | 'erro_autorizacao' | 'cancelado' | string;
+  numero?: string;
+  chave_nfe?: string;
+  protocolo?: string;
+  caminho_xml_nota_fiscal?: string;
+  url_danfe?: string;
+  url?: string;
+  erros?: Array<{ codigo: string; mensagem: string; campo?: string }>;
+  [k: string]: any;
+}
+
 export const FOCUS_NFE_PATHS = {
   EMPRESAS: '/v2/empresas',
+  NFE: '/v2/nfe',
   NFSE: '/v2/nfse',
   NFSE_STATUS: '/v2/nfse/status',
   WEBHOOKS: '/v2/hooks'

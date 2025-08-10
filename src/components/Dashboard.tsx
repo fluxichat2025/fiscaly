@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
-import { 
-  FileText, 
-  Building2, 
-  TrendingUp, 
+import { TasksWidget } from '@/components/TasksWidget';
+import {
+  FileText,
+  Building2,
+  TrendingUp,
   DollarSign,
   CalendarDays,
   Users,
@@ -285,6 +286,9 @@ export function Dashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Widget de Tarefas */}
+        <TasksWidget limit={5} />
       </div>
     </div>
   );

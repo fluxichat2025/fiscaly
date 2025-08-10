@@ -14,6 +14,7 @@ import { FileText, Upload, AlertCircle, CheckCircle, Loader2, ArrowLeft } from '
 import { useToast } from '@/hooks/use-toast';
 import { useFocusNFeAPI, FocusNFeEmpresa, EmpresaListItem } from '@/hooks/useFocusNFeAPI';
 import { supabase } from '@/integrations/supabase/client';
+import { CompanyNfseConfigManager } from '@/components/CompanyNfseConfigManager';
 
 interface EmpresaFormFocusProps {
   empresa?: EmpresaListItem | null;
@@ -27,6 +28,7 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
   const [certificatePassword, setCertificatePassword] = useState('');
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
   const [certificateStatus, setCertificateStatus] = useState<'ausente' | 'presente' | 'validado'>('ausente');
+  const [supabaseCompanyId, setSupabaseCompanyId] = useState<string | null>(null);
   const { toast } = useToast();
   const { createEmpresa, updateEmpresa, getEmpresa, loading } = useFocusNFeAPI();
 
@@ -140,7 +142,7 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
     try {
       const { data, error } = await supabase
         .from('companies')
-        .select('item_lista_servico, codigo_tributario_municipio, aliquota, iss_retido, natureza_operacao, optante_simples_nacional, incentivador_cultural')
+        .select('id, item_lista_servico, codigo_tributario_municipio, aliquota, iss_retido, natureza_operacao, optante_simples_nacional, incentivador_cultural')
         .eq('cnpj_cpf', cnpjToUse)
         .single();
 
@@ -150,6 +152,7 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
       }
 
       if (data) {
+        setSupabaseCompanyId(data.id);
         setNfseConfig({
           item_lista_servico: data.item_lista_servico || '',
           codigo_tributario_municipio: data.codigo_tributario_municipio || '',
@@ -273,6 +276,8 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
             description: "Erro ao salvar configurações de NFSe",
           });
         } else {
+          // Set the company ID for the NFSe config manager
+          setSupabaseCompanyId(existingCompany.id);
           console.log('✅ Configurações de NFSe salvas com sucesso');
           toast({
             title: "Sucesso",
@@ -282,7 +287,7 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
       } else {
         // Empresa não existe, criar registro básico primeiro
         const empresaData = getValues();
-        const { error: insertError } = await supabase
+        const { data: newCompany, error: insertError } = await supabase
           .from('companies')
           .insert({
             cnpj_cpf: cnpj,
@@ -297,7 +302,9 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
             incentivador_cultural: nfseConfig.incentivador_cultural,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          });
+          })
+          .select('id')
+          .single();
 
         if (insertError) {
           console.error('Erro ao criar empresa com configurações de NFSe:', insertError);
@@ -307,6 +314,10 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
             description: "Erro ao salvar configurações de NFSe",
           });
         } else {
+          // Set the company ID for the NFSe config manager
+          if (newCompany) {
+            setSupabaseCompanyId(newCompany.id);
+          }
           console.log('✅ Empresa criada com configurações de NFSe');
           toast({
             title: "Sucesso",
@@ -771,100 +782,121 @@ export default function EmpresaFormFocus({ empresa, onSuccess, onCancel }: Empre
 
           <TabsContent value="nfse" className="space-y-6">
             <div className="space-y-4">
-              <h3 className="text-lg font-medium">Configurações de NFSe</h3>
-              <p className="text-sm text-muted-foreground">
-                Configure os dados padrão para emissão automática de NFSe. Estes dados serão preenchidos automaticamente ao selecionar esta empresa.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nfse_item_lista_servico">Item da Lista de Serviços</Label>
-                  <Input
-                    id="nfse_item_lista_servico"
-                    value={nfseConfig.item_lista_servico}
-                    onChange={(e) => setNfseConfig(prev => ({ ...prev, item_lista_servico: e.target.value }))}
-                    placeholder="Ex: 140600"
-                    maxLength={6}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Código de 6 dígitos conforme tabela da Focus NFe
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="nfse_codigo_tributario_municipio">Código Tributário do Município</Label>
-                  <Input
-                    id="nfse_codigo_tributario_municipio"
-                    value={nfseConfig.codigo_tributario_municipio}
-                    onChange={(e) => setNfseConfig(prev => ({ ...prev, codigo_tributario_municipio: e.target.value }))}
-                    placeholder="Ex: 332100001"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Código CNAE municipal
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="nfse_aliquota">Alíquota ISS (%)</Label>
-                  <Input
-                    id="nfse_aliquota"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    value={nfseConfig.aliquota}
-                    onChange={(e) => setNfseConfig(prev => ({ ...prev, aliquota: parseFloat(e.target.value) || 0 }))}
-                    placeholder="Ex: 5.00"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="nfse_natureza_operacao">Natureza da Operação</Label>
-                  <select
-                    id="nfse_natureza_operacao"
-                    value={nfseConfig.natureza_operacao}
-                    onChange={(e) => setNfseConfig(prev => ({ ...prev, natureza_operacao: e.target.value }))}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="">Selecione...</option>
-                    <option value="1">Tributação no município</option>
-                    <option value="2">Tributação fora do município</option>
-                    <option value="3">Isenção</option>
-                    <option value="4">Imune</option>
-                    <option value="5">Exigibilidade suspensa por decisão judicial</option>
-                    <option value="6">Exigibilidade suspensa por procedimento administrativo</option>
-                  </select>
-                </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium">Configurações de NFSe</h3>
+                <p className="text-sm text-muted-foreground">
+                  Configure múltiplos códigos tributários e itens de serviço para esta empresa. Estes dados estarão disponíveis para seleção rápida durante a emissão de NFSe.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="nfse_iss_retido"
-                    checked={nfseConfig.iss_retido}
-                    onCheckedChange={(checked) => setNfseConfig(prev => ({ ...prev, iss_retido: checked }))}
-                  />
-                  <Label htmlFor="nfse_iss_retido">ISS Retido na Fonte</Label>
+              {supabaseCompanyId ? (
+                <CompanyNfseConfigManager companyId={supabaseCompanyId} />
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Salve a empresa primeiro para configurar os dados de NFSe</p>
                 </div>
+              )}
 
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="nfse_optante_simples_nacional"
-                    checked={nfseConfig.optante_simples_nacional}
-                    onCheckedChange={(checked) => setNfseConfig(prev => ({ ...prev, optante_simples_nacional: checked }))}
-                  />
-                  <Label htmlFor="nfse_optante_simples_nacional">Optante Simples Nacional</Label>
-                </div>
+              {/* Legacy single-entry configuration for backward compatibility */}
+              <Card className="border-dashed">
+                <CardHeader>
+                  <CardTitle className="text-base">Configurações Legadas (Compatibilidade)</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Estas configurações são mantidas para compatibilidade com o sistema atual.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="nfse_item_lista_servico">Item da Lista de Serviços</Label>
+                      <Input
+                        id="nfse_item_lista_servico"
+                        value={nfseConfig.item_lista_servico}
+                        onChange={(e) => setNfseConfig(prev => ({ ...prev, item_lista_servico: e.target.value }))}
+                        placeholder="Ex: 140600"
+                        maxLength={6}
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Código de 6 dígitos conforme tabela da Focus NFe
+                      </p>
+                    </div>
 
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="nfse_incentivador_cultural"
-                    checked={nfseConfig.incentivador_cultural}
-                    onCheckedChange={(checked) => setNfseConfig(prev => ({ ...prev, incentivador_cultural: checked }))}
-                  />
-                  <Label htmlFor="nfse_incentivador_cultural">Incentivador Cultural</Label>
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nfse_codigo_tributario_municipio">Código Tributário do Município</Label>
+                      <Input
+                        id="nfse_codigo_tributario_municipio"
+                        value={nfseConfig.codigo_tributario_municipio}
+                        onChange={(e) => setNfseConfig(prev => ({ ...prev, codigo_tributario_municipio: e.target.value }))}
+                        placeholder="Ex: 332100001"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Código CNAE municipal
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="nfse_aliquota">Alíquota ISS (%)</Label>
+                      <Input
+                        id="nfse_aliquota"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={nfseConfig.aliquota}
+                        onChange={(e) => setNfseConfig(prev => ({ ...prev, aliquota: parseFloat(e.target.value) || 0 }))}
+                        placeholder="Ex: 5.00"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="nfse_natureza_operacao">Natureza da Operação</Label>
+                      <select
+                        id="nfse_natureza_operacao"
+                        value={nfseConfig.natureza_operacao}
+                        onChange={(e) => setNfseConfig(prev => ({ ...prev, natureza_operacao: e.target.value }))}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">Selecione...</option>
+                        <option value="1">Tributação no município</option>
+                        <option value="2">Tributação fora do município</option>
+                        <option value="3">Isenção</option>
+                        <option value="4">Imune</option>
+                        <option value="5">Exigibilidade suspensa por decisão judicial</option>
+                        <option value="6">Exigibilidade suspensa por procedimento administrativo</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="nfse_iss_retido"
+                        checked={nfseConfig.iss_retido}
+                        onCheckedChange={(checked) => setNfseConfig(prev => ({ ...prev, iss_retido: checked }))}
+                      />
+                      <Label htmlFor="nfse_iss_retido">ISS Retido na Fonte</Label>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="nfse_optante_simples_nacional"
+                        checked={nfseConfig.optante_simples_nacional}
+                        onCheckedChange={(checked) => setNfseConfig(prev => ({ ...prev, optante_simples_nacional: checked }))}
+                      />
+                      <Label htmlFor="nfse_optante_simples_nacional">Optante Simples Nacional</Label>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="nfse_incentivador_cultural"
+                        checked={nfseConfig.incentivador_cultural}
+                        onCheckedChange={(checked) => setNfseConfig(prev => ({ ...prev, incentivador_cultural: checked }))}
+                      />
+                      <Label htmlFor="nfse_incentivador_cultural">Incentivador Cultural</Label>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 

@@ -245,8 +245,10 @@ export function useFocusNFeAPI() {
       url,
       token: TOKEN_PRODUCAO.substring(0, 10) + '...',
       endpoint,
+      method: options.method || 'GET',
       auth: auth.substring(0, 20) + '...',
-      attempt: retryCount + 1
+      attempt: retryCount + 1,
+      body: options.body ? JSON.parse(options.body as string) : null
     });
 
     try {
@@ -274,6 +276,14 @@ export function useFocusNFeAPI() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('❌ API Error:', errorData);
+
+        // Log detalhes específicos dos erros de validação
+        if (errorData.erros && Array.isArray(errorData.erros)) {
+          console.error('📋 Erros de validação detalhados:', JSON.stringify(errorData.erros, null, 2));
+          errorData.erros.forEach((erro: any, index: number) => {
+            console.error(`   ${index + 1}. ${JSON.stringify(erro, null, 2)}`);
+          });
+        }
 
         // Tratamento específico para erro 429 (Too Many Requests)
         if (response.status === 429) {
@@ -383,15 +393,18 @@ export function useFocusNFeAPI() {
       if (empresasSupabase && empresasSupabase.length > 0) {
         console.log('✅ Empresas carregadas do Supabase:', empresasSupabase.length);
 
-        const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => ({
-          id: empresa.id ? empresa.id.toString() : Math.random().toString(),
-          nome: empresa.razao_social || 'Nome não informado',
-          nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
-          cnpj_cpf: empresa.cnpj || 'CNPJ não informado',
-          ultima_emissao: null,
-          certificado_status: null,
-          actions: ['EDITAR', 'EXCLUIR']
-        }));
+        const empresasFormatadas: EmpresaListItem[] = empresasSupabase.map((empresa: any) => {
+          console.log('📋 Mapeando empresa:', empresa);
+          return {
+            id: empresa.id ? empresa.id.toString() : Math.random().toString(),
+            nome: empresa.razao_social || 'Nome não informado',
+            nome_fantasia: empresa.nome_fantasia || empresa.razao_social || 'Fantasia não informada',
+            cnpj_cpf: empresa.cnpj_cpf || empresa.cnpj || 'CNPJ não informado',
+            ultima_emissao: null,
+            certificado_status: empresa.focus_nfe_habilitado ? 'Habilitado' : 'Não configurado',
+            actions: ['EDITAR', 'EXCLUIR']
+          };
+        });
 
         empresasCache = empresasFormatadas;
         cacheTimestamp = now;
@@ -770,16 +783,125 @@ export function useFocusNFeAPI() {
     }
   };
 
+  // Função para mapear dados do formulário para o formato da API Focus NFe
+  const mapearDadosEmpresaParaFocusNFe = (dadosFormulario: any) => {
+    const dadosMapeados: any = {};
+
+    // Campos básicos da empresa
+    if (dadosFormulario.razao_social) dadosMapeados.nome = dadosFormulario.razao_social;
+    if (dadosFormulario.nome_fantasia) dadosMapeados.nome_fantasia = dadosFormulario.nome_fantasia;
+    if (dadosFormulario.cnpj_cpf) {
+      // Determinar se é CNPJ ou CPF baseado no tamanho
+      const cnpjCpf = dadosFormulario.cnpj_cpf.replace(/\D/g, '');
+      if (cnpjCpf.length === 14) {
+        dadosMapeados.cnpj = cnpjCpf;
+      } else if (cnpjCpf.length === 11) {
+        dadosMapeados.cpf = cnpjCpf;
+      }
+    }
+
+    // Inscrições
+    if (dadosFormulario.inscricao_estadual) dadosMapeados.inscricao_estadual = dadosFormulario.inscricao_estadual;
+    if (dadosFormulario.inscricao_municipal) dadosMapeados.inscricao_municipal = dadosFormulario.inscricao_municipal;
+
+    // Endereço
+    if (dadosFormulario.logradouro) dadosMapeados.logradouro = dadosFormulario.logradouro;
+    if (dadosFormulario.numero) dadosMapeados.numero = dadosFormulario.numero;
+    if (dadosFormulario.complemento) dadosMapeados.complemento = dadosFormulario.complemento;
+    if (dadosFormulario.bairro) dadosMapeados.bairro = dadosFormulario.bairro;
+    if (dadosFormulario.municipio) dadosMapeados.municipio = dadosFormulario.municipio;
+    if (dadosFormulario.uf) dadosMapeados.uf = dadosFormulario.uf;
+    if (dadosFormulario.cep) dadosMapeados.cep = dadosFormulario.cep.replace(/\D/g, '');
+    if (dadosFormulario.codigo_municipio) dadosMapeados.codigo_municipio = dadosFormulario.codigo_municipio;
+
+    // Contato
+    if (dadosFormulario.email) dadosMapeados.email = dadosFormulario.email;
+    if (dadosFormulario.telefone) dadosMapeados.telefone = dadosFormulario.telefone.replace(/\D/g, '');
+
+    // Regime tributário
+    if (dadosFormulario.regime_tributario) dadosMapeados.regime_tributario = dadosFormulario.regime_tributario;
+
+    // Campos de habilitação (apenas se especificados)
+    if (dadosFormulario.habilita_nfe !== undefined) dadosMapeados.habilita_nfe = dadosFormulario.habilita_nfe;
+    if (dadosFormulario.habilita_nfse !== undefined) dadosMapeados.habilita_nfse = dadosFormulario.habilita_nfse;
+    if (dadosFormulario.habilita_nfce !== undefined) dadosMapeados.habilita_nfce = dadosFormulario.habilita_nfce;
+
+    console.log('🔄 Mapeamento de dados:', {
+      original: dadosFormulario,
+      mapeado: dadosMapeados
+    });
+
+    return dadosMapeados;
+  };
+
   // Função para atualizar uma empresa
   const updateEmpresa = async (id: string, empresaData: Partial<FocusNFeEmpresa>) => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await makeRequest(`/empresas/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(empresaData),
+      // Primeiro, buscar a empresa no Supabase para obter o focus_nfe_empresa_id
+      console.log('🔍 Buscando empresa para atualização, ID:', id);
+
+      const { data: empresaSupabase, error: errorBusca } = await supabase
+        .from('companies')
+        .select('focus_nfe_empresa_id, cnpj_cpf, razao_social')
+        .eq('id', id)
+        .single();
+
+      if (errorBusca || !empresaSupabase) {
+        throw new Error('Empresa não encontrada no sistema local');
+      }
+
+      if (!empresaSupabase.focus_nfe_empresa_id) {
+        throw new Error('Empresa não possui ID da Focus NFe. Verifique se a empresa foi criada corretamente na Focus NFe.');
+      }
+
+      console.log('🏢 Focus NFe Empresa ID encontrado:', empresaSupabase.focus_nfe_empresa_id);
+
+      // Primeiro, consultar a empresa na Focus NFe para verificar se já tem certificado
+      const empresaAtual = await makeRequest(`/empresas/${empresaSupabase.focus_nfe_empresa_id}`, {
+        method: 'GET',
       });
+
+      console.log('📋 Empresa atual na Focus NFe:', empresaAtual);
+
+      // Mapear dados do formulário para o formato da API Focus NFe
+      const dadosMapeados = mapearDadosEmpresaParaFocusNFe(empresaData);
+
+      // Se a empresa já tem certificado, remover campos relacionados ao certificado
+      if (empresaAtual.certificado_valido_ate) {
+        console.log('🔒 Empresa já possui certificado. Removendo campos relacionados ao certificado dos dados de atualização.');
+        delete dadosMapeados.arquivo_certificado_base64;
+        delete dadosMapeados.senha_certificado;
+        delete dadosMapeados.certificado_valido_ate;
+        delete dadosMapeados.certificado_valido_de;
+        delete dadosMapeados.certificado_cnpj;
+        delete dadosMapeados.certificado_especifico;
+      }
+
+      console.log('📤 Dados mapeados e filtrados para envio:', dadosMapeados);
+
+      // Atualizar na API Focus NFe usando o ID da empresa
+      const data = await makeRequest(`/empresas/${empresaSupabase.focus_nfe_empresa_id}`, {
+        method: 'PUT',
+        body: JSON.stringify(dadosMapeados),
+      });
+
+      // Também atualizar no Supabase
+      const { error: errorUpdate } = await supabase
+        .from('companies')
+        .update({
+          nome_fantasia: empresaData.nome_fantasia,
+          inscricao_estadual: empresaData.inscricao_estadual,
+          inscricao_municipal: empresaData.inscricao_municipal,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      if (errorUpdate) {
+        console.warn('⚠️ Erro ao atualizar no Supabase:', errorUpdate);
+      }
 
       toast({
         title: "Empresa atualizada",
@@ -788,18 +910,18 @@ export function useFocusNFeAPI() {
 
       // Recarregar a lista de empresas
       await fetchEmpresas();
-      
+
       return data;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(errorMessage);
-      
+
       toast({
         variant: "destructive",
         title: "Erro ao atualizar empresa",
         description: errorMessage,
       });
-      
+
       throw err;
     } finally {
       setLoading(false);
@@ -812,9 +934,39 @@ export function useFocusNFeAPI() {
     setError(null);
 
     try {
-      await makeRequest(`/empresas/${id}`, {
+      // Primeiro, buscar a empresa no Supabase para obter o focus_nfe_empresa_id
+      console.log('🔍 Buscando empresa para exclusão, ID:', id);
+
+      const { data: empresaSupabase, error: errorBusca } = await supabase
+        .from('companies')
+        .select('focus_nfe_empresa_id, cnpj_cpf, razao_social')
+        .eq('id', id)
+        .single();
+
+      if (errorBusca || !empresaSupabase) {
+        throw new Error('Empresa não encontrada no sistema local');
+      }
+
+      if (!empresaSupabase.focus_nfe_empresa_id) {
+        throw new Error('Empresa não possui ID da Focus NFe. Verifique se a empresa foi criada corretamente na Focus NFe.');
+      }
+
+      console.log('🏢 Focus NFe Empresa ID encontrado para exclusão:', empresaSupabase.focus_nfe_empresa_id);
+
+      // Excluir na API Focus NFe usando o ID da empresa
+      await makeRequest(`/empresas/${empresaSupabase.focus_nfe_empresa_id}`, {
         method: 'DELETE',
       });
+
+      // Também remover do Supabase
+      const { error: errorDelete } = await supabase
+        .from('companies')
+        .delete()
+        .eq('id', id);
+
+      if (errorDelete) {
+        console.warn('⚠️ Erro ao remover do Supabase:', errorDelete);
+      }
 
       toast({
         title: "Empresa excluída",
@@ -826,13 +978,13 @@ export function useFocusNFeAPI() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(errorMessage);
-      
+
       toast({
         variant: "destructive",
         title: "Erro ao excluir empresa",
         description: errorMessage,
       });
-      
+
       throw err;
     } finally {
       setLoading(false);
@@ -845,9 +997,72 @@ export function useFocusNFeAPI() {
     setError(null);
 
     try {
-      // Usar o endpoint correto da API Focus NFe para buscar empresa específica
-      const data: FocusNFeEmpresa = await makeRequest(`/empresas/${id}`);
-      return data;
+      console.log('🔍 Buscando empresa por ID:', id);
+
+      // Primeiro tentar buscar do Supabase (mais confiável)
+      const empresaSupabase = await buscarEmpresaPorId(id);
+
+      if (empresaSupabase) {
+        console.log('✅ Empresa encontrada no Supabase:', empresaSupabase);
+
+        // Converter dados do Supabase para formato Focus NFe
+        const empresaFormatada: FocusNFeEmpresa = {
+          id: parseInt(empresaSupabase.focus_nfe_empresa_id?.toString() || '0') || 0,
+          nome: empresaSupabase.razao_social,
+          nome_fantasia: empresaSupabase.nome_fantasia || '',
+          cnpj: empresaSupabase.cnpj_cpf,
+          inscricao_estadual: empresaSupabase.inscricao_estadual || '',
+          inscricao_municipal: empresaSupabase.inscricao_municipal || '',
+          bairro: empresaSupabase.bairro || '',
+          cep: empresaSupabase.cep || '',
+          codigo_municipio: empresaSupabase.codigo_municipio || '',
+          codigo_pais: '1058',
+          codigo_uf: empresaSupabase.estado_uf || '',
+          complemento: empresaSupabase.complemento || '',
+          cpf_cnpj_contabilidade: '',
+          cpf_responsavel: '',
+          discrimina_impostos: false,
+          email: empresaSupabase.email || '',
+          enviar_email_destinatario: true,
+          enviar_email_homologacao: false,
+          habilita_nfce: false,
+          habilita_nfe: false,
+          habilita_nfse: empresaSupabase.focus_nfe_habilitado || false,
+          habilita_nfsen_producao: false,
+          habilita_nfsen_homologacao: false,
+          habilita_cte: false,
+          habilita_mdfe: false,
+          habilita_manifestacao: false,
+          logradouro: empresaSupabase.logradouro || '',
+          municipio: empresaSupabase.cidade || '',
+          nome_responsavel: '',
+          numero: empresaSupabase.numero || '',
+          regime_tributario: '1',
+          telefone: empresaSupabase.telefone || '',
+          uf: empresaSupabase.estado_uf || '',
+          certificado_valido_ate: null,
+          certificado_valido_de: null,
+          certificado_cnpj: '',
+          certificado_especifico: false,
+          data_ultima_emissao: null,
+          token_producao: empresaSupabase.focus_nfe_token_producao || '',
+          token_homologacao: empresaSupabase.focus_nfe_token_homologacao || '',
+          mostrar_danfse_badge: false
+        };
+
+        return empresaFormatada;
+      }
+
+      // Se não encontrar no Supabase, tentar na API Focus NFe usando o ID da Focus NFe
+      console.log('⚠️ Empresa não encontrada no Supabase, tentando API Focus NFe...');
+
+      // Se o ID parece ser um ID numérico da Focus NFe, usar diretamente
+      if (/^\d+$/.test(id)) {
+        const data: FocusNFeEmpresa = await makeRequest(`/empresas/${id}`);
+        return data;
+      }
+
+      throw new Error('Empresa não encontrada');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(errorMessage);
@@ -1015,7 +1230,7 @@ export function useFocusNFeAPI() {
   };
 
   // Função para carregar empresas manualmente (sem useEffect)
-  const carregarEmpresas = async () => {
+  const recarregarEmpresas = async () => {
     if (loading) return; // Evitar múltiplas requisições simultâneas
     await fetchEmpresas();
   };
@@ -1047,8 +1262,10 @@ export function useFocusNFeAPI() {
   };
 
   // Função para buscar empresa por ID
-  const buscarEmpresaPorId = async (id: string): Promise<Company | null> => {
+  const buscarEmpresaPorId = async (id: string): Promise<any | null> => {
     try {
+      console.log('🔍 Buscando empresa por ID no Supabase:', id);
+
       const { data, error } = await supabase
         .from('companies')
         .select('*')
@@ -1060,6 +1277,7 @@ export function useFocusNFeAPI() {
         return null;
       }
 
+      console.log('✅ Empresa encontrada:', data);
       return data;
     } catch (error) {
       console.error('❌ Erro ao buscar empresa:', error);
@@ -1320,6 +1538,7 @@ export function useFocusNFeAPI() {
     error,
     fetchEmpresas,
     carregarEmpresas,
+    recarregarEmpresas,
     limparCache,
     createEmpresa,
     updateEmpresa,

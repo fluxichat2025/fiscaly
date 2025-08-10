@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
-import { NoticiaContabil } from '@/types/database';
-import { NoticiasService } from '@/services/noticiasService';
 import {
   Newspaper,
   ExternalLink,
@@ -14,10 +11,26 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { checkNoticiasTable, insertExampleNoticias } from '@/utils/checkNoticiasTable';
+
+// Tipos da API externa de notícias
+interface APINoticia {
+  categoria: string;
+  tempo: string;
+  titulo: string;
+  thumb: string;
+  url: string;
+}
+
+interface NoticiasAPIResponse {
+  status: string;
+  total: number;
+  noticias: APINoticia[];
+  timestamp: string;
+}
+
 
 export function NoticiasContabeis() {
-  const [noticias, setNoticias] = useState<NoticiaContabil[]>([]);
+  const [noticias, setNoticias] = useState<APINoticia[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,17 +42,7 @@ export function NoticiasContabeis() {
 
   const initializeNoticias = async () => {
     console.log('🔍 Debug - initializeNoticias iniciado');
-
-    // Verificar se a tabela existe
-    const tableExists = await checkNoticiasTable();
-
-    if (tableExists) {
-      fetchNoticias();
-    } else {
-      console.log('⚠️  Tabela noticias_contabeis não existe. Usando dados de exemplo.');
-      // Usar dados de exemplo se a tabela não existir
-      setLoading(false);
-    }
+    await fetchNoticias();
   };
 
   const fetchNoticias = async () => {
@@ -47,65 +50,18 @@ export function NoticiasContabeis() {
       setError(null);
       console.log('🔍 Debug - fetchNoticias iniciado');
 
-      const { data, error } = await supabase
-        .from('noticias_contabeis')
-        .select('*')
-        .eq('status', 'ativo')
-        .order('data_publicacao', { ascending: false })
-        .limit(7);
+      const resp = await fetch('https://puppeteer.fluxichat.com.br/noticias');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json: NoticiasAPIResponse = await resp.json();
 
-      console.log('🔍 Debug - Supabase response:', { data, error });
+      if (json.status !== 'sucesso') throw new Error('Status de API inválido');
 
-      if (error) throw error;
-
-      setNoticias(data || []);
-      console.log('✅ Debug - Notícias carregadas:', data?.length || 0);
+      setNoticias(json.noticias || []);
+      console.log('✅ Debug - Notícias carregadas da API externa:', json.noticias?.length || 0);
     } catch (error) {
-      console.error('Erro ao buscar notícias:', error);
+      console.error('Erro ao buscar notícias da API externa:', error);
       setError('Erro ao carregar notícias');
-      
-      // Se a tabela não existir, mostrar notícias de exemplo
-      setNoticias([
-        {
-          id: '1',
-          titulo: 'Novas regras do eSocial entram em vigor',
-          resumo: 'Empresas devem se adequar às mudanças no eSocial que passam a valer a partir deste mês',
-          data_publicacao: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-          link_original: 'https://www.jornalcontabil.com.br/exemplo1',
-          categoria: 'eSocial',
-          fonte: 'Jornal Contábil',
-          status: 'ativo' as const,
-          visualizacoes: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: '2',
-          titulo: 'Prazo para entrega da DIRF 2024',
-          resumo: 'Receita Federal define prazo final para entrega da Declaração do Imposto de Renda Retido na Fonte',
-          data_publicacao: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-          link_original: 'https://www.jornalcontabil.com.br/exemplo2',
-          categoria: 'Impostos',
-          fonte: 'Jornal Contábil',
-          status: 'ativo' as const,
-          visualizacoes: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: '3',
-          titulo: 'Mudanças na legislação trabalhista',
-          resumo: 'Novas alterações na CLT afetam cálculos de folha de pagamento',
-          data_publicacao: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-          link_original: 'https://www.jornalcontabil.com.br/exemplo3',
-          categoria: 'Trabalhista',
-          fonte: 'Jornal Contábil',
-          status: 'ativo' as const,
-          visualizacoes: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      ]);
+      setNoticias([]);
     } finally {
       setLoading(false);
     }
@@ -114,84 +70,29 @@ export function NoticiasContabeis() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      console.log('🔄 Iniciando atualização de notícias...');
-
-      // Fazer scraping real das notícias
-      console.log('🔍 Debug - Chamando NoticiasService.scrapNoticias()...');
-      const scrapingResult = await NoticiasService.scrapNoticias();
-      console.log('🔍 Debug - Resultado do scraping:', scrapingResult);
-
-      if (scrapingResult.success && scrapingResult.noticias.length > 0) {
-        console.log('✅ Debug - Scraping bem-sucedido, salvando notícias...');
-
-        // Salvar notícias no Supabase
-        const novasSalvas = await NoticiasService.salvarNoticias(scrapingResult.noticias);
-        console.log('🔍 Debug - Notícias salvas:', novasSalvas);
-
-        // Recarregar notícias do banco
-        await fetchNoticias();
-
-        toast({
-          title: "Notícias atualizadas",
-          description: `${novasSalvas} novas notícias foram carregadas`,
-        });
-      } else {
-        console.log('⚠️  Debug - Scraping falhou ou sem notícias, recarregando do banco...');
-
-        // Se o scraping falhar, apenas recarregar do banco
-        await fetchNoticias();
-        toast({
-          title: "Notícias carregadas",
-          description: "Exibindo notícias do cache local",
-        });
-      }
+      console.log('🔄 Atualizando notícias a partir da API externa...');
+      await fetchNoticias();
+      toast({
+        title: 'Notícias atualizadas',
+        description: 'Exibindo as 20 últimas notícias',
+      });
     } catch (error) {
       console.error('Erro ao atualizar notícias:', error);
-
-      // Em caso de erro, tentar carregar do banco mesmo assim
-      await fetchNoticias();
-
       toast({
-        variant: "destructive",
-        title: "Erro ao atualizar",
-        description: "Exibindo notícias em cache. Verifique sua conexão.",
+        variant: 'destructive',
+        title: 'Erro ao atualizar',
+        description: 'Não foi possível atualizar as notícias agora.',
       });
     } finally {
       setRefreshing(false);
     }
   };
 
-  const handleNoticiaClick = async (noticia: NoticiaContabil) => {
-    // Incrementar visualizações
-    try {
-      await supabase
-        .from('noticias_contabeis')
-        .update({ visualizacoes: noticia.visualizacoes + 1 })
-        .eq('id', noticia.id);
-    } catch (error) {
-      console.error('Erro ao atualizar visualizações:', error);
-    }
-
-    // Abrir link em nova aba
-    window.open(noticia.link_original, '_blank');
+  const handleNoticiaClick = (noticia: APINoticia) => {
+    window.open(noticia.url, '_blank');
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 1) return 'Hoje';
-    if (diffDays === 2) return 'Ontem';
-    if (diffDays <= 7) return `${diffDays - 1} dias atrás`;
-    
-    return date.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-  };
+  const formatTempo = (tempo: string) => tempo;
 
   const getCategoriaColor = (categoria?: string) => {
     switch (categoria?.toLowerCase()) {
@@ -255,43 +156,50 @@ export function NoticiasContabeis() {
         {noticias.length > 0 ? (
           noticias.map((noticia) => (
             <Card
-              key={noticia.id}
-              className="shadow-sm hover:shadow-md transition-all cursor-pointer border-l-2 border-l-primary"
-              onClick={() => handleNoticiaClick(noticia)}
+              key={noticia.url}
+              className="shadow-sm hover:shadow-md transition-all border-l-2 border-l-primary"
             >
               <CardContent className="p-2">
-                <div className="space-y-1">
-                  {/* Título e Categoria */}
-                  <div className="flex items-start justify-between gap-1">
-                    <h3 className="font-medium text-xs leading-tight line-clamp-2 flex-1">
-                      {noticia.titulo}
-                    </h3>
-                    {noticia.categoria && (
-                      <Badge
-                        variant="secondary"
-                        className={`text-xs px-1 py-0 h-4 ${getCategoriaColor(noticia.categoria)} flex-shrink-0`}
-                      >
-                        {noticia.categoria}
-                      </Badge>
-                    )}
-                  </div>
+                <div className="flex items-start gap-2">
+                  {/* Thumbnail */}
+                  <img
+                    src={noticia.thumb}
+                    alt={noticia.titulo}
+                    className="w-12 h-12 rounded object-cover flex-shrink-0"
+                    loading="lazy"
+                  />
 
-                  {/* Resumo Compacto */}
-                  {noticia.resumo && (
-                    <p className="text-xs text-muted-foreground line-clamp-1">
-                      {noticia.resumo}
-                    </p>
-                  )}
-
-                  {/* Footer Compacto */}
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-2 w-2" />
-                      <span className="text-xs">{formatDate(noticia.data_publicacao || noticia.created_at)}</span>
+                  <div className="flex-1 space-y-1">
+                    {/* Título e Categoria */}
+                    <div className="flex items-start justify-between gap-1">
+                      <h3 className="font-medium text-xs leading-tight line-clamp-2 flex-1">
+                        {noticia.titulo}
+                      </h3>
+                      {noticia.categoria && (
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs px-1 py-0 h-4 ${getCategoriaColor(noticia.categoria)} flex-shrink-0`}
+                        >
+                          {noticia.categoria}
+                        </Badge>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1">
-                      <ExternalLink className="h-2 w-2" />
-                      <span className="text-xs truncate">{noticia.fonte}</span>
+
+                    {/* Footer: tempo e botão */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-2 w-2" />
+                        <span className="text-xs">{formatTempo(noticia.tempo)}</span>
+                      </div>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-6 px-1 text-xs"
+                        onClick={() => handleNoticiaClick(noticia)}
+                      >
+                        Mais detalhes
+                        <ExternalLink className="h-3 w-3 ml-1" />
+                      </Button>
                     </div>
                   </div>
                 </div>

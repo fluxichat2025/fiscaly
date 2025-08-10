@@ -24,7 +24,7 @@ export class FocusNFeClient {
     try {
       const url = `${this.config.baseUrl}${endpoint}`
       const token = btoa(`${this.config.token}:`)
-      
+
       const response = await fetch(url, {
         ...options,
         headers: {
@@ -122,12 +122,58 @@ export class FocusNFeClient {
   async verificarStatus(): Promise<FocusNFeApiResponse<any>> {
     return this.get(FOCUS_NFE_PATHS.NFSE_STATUS)
   }
+
+  // ===== NFe =====
+  async emitirNFe(ref: string, dados: any): Promise<FocusNFeApiResponse<any>> {
+    return this.post(`${FOCUS_NFE_PATHS.NFE}?ref=${encodeURIComponent(ref)}`, dados)
+  }
+
+  async consultarNFe(ref: string): Promise<FocusNFeApiResponse<any>> {
+    return this.get(`${FOCUS_NFE_PATHS.NFE}/${encodeURIComponent(ref)}`)
+  }
+
+  async cancelarNFe(ref: string, justificativa: string): Promise<FocusNFeApiResponse<any>> {
+    if (!justificativa || justificativa.length < 15) {
+      throw new FocusNFeErrorClass('Justificativa para cancelamento deve ter pelo menos 15 caracteres')
+    }
+    return this.delete(`${FOCUS_NFE_PATHS.NFE}/${encodeURIComponent(ref)}`, { justificativa })
+  }
+
+  async enviarEmailNFe(ref: string, emails: string[]): Promise<FocusNFeApiResponse<any>> {
+    return this.post(`${FOCUS_NFE_PATHS.NFE}/${encodeURIComponent(ref)}/email`, { emails })
+  }
+
+  async cartaCorrecaoNFe(ref: string, texto: string): Promise<FocusNFeApiResponse<any>> {
+    return this.post(`${FOCUS_NFE_PATHS.NFE}/${encodeURIComponent(ref)}/carta_correcao`, { texto })
+  }
+
+  async inutilizarNFe(payload: { serie: number; numero_inicial: number; numero_final: number; justificativa: string }): Promise<FocusNFeApiResponse<any>> {
+    return this.post(`${FOCUS_NFE_PATHS.NFE}/inutilizacao`, payload)
+  }
+
+  async danfePreviewNFe(payload: any): Promise<FocusNFeApiResponse<any>> {
+    return this.post(`${FOCUS_NFE_PATHS.NFE}/danfe`, payload)
+  }
+
+  // ===== Webhooks =====
+  async criarWebhook(url: string, eventos: string[]): Promise<FocusNFeApiResponse<any>> {
+    return this.post(FOCUS_NFE_PATHS.WEBHOOKS, { url, eventos })
+  }
+
+  async listarWebhooks(): Promise<FocusNFeApiResponse<any>> {
+    return this.get(FOCUS_NFE_PATHS.WEBHOOKS)
+  }
+
+  async excluirWebhook(id: string): Promise<FocusNFeApiResponse<any>> {
+    return this.delete(`${FOCUS_NFE_PATHS.WEBHOOKS}/${encodeURIComponent(id)}`)
+  }
+
 }
 
 // Função helper para criar instância do cliente
 export function createFocusNFeClient(token: string, ambiente: 'homologacao' | 'producao' = 'homologacao'): FocusNFeClient {
   const baseUrl = ambiente === 'producao' ? FOCUS_NFE_ENDPOINTS.PRODUCAO : FOCUS_NFE_ENDPOINTS.HOMOLOGACAO
-  
+
   return new FocusNFeClient({
     baseUrl,
     token,

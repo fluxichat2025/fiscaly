@@ -61,6 +61,7 @@ const menuItems = [
   },
   { title: "Imposto de Renda", url: "/imposto-renda", icon: Calculator },
   { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
+  { title: "Tarefas", url: "/tarefas", icon: FileCheck },
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
 

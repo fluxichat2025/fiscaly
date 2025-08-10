@@ -13,9 +13,12 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useFocusNFeAPI } from '@/hooks/useFocusNFeAPI';
 import { useNFSeMonitoring } from '@/hooks/useNFSeMonitoring';
-import { FileText, Building, Calculator, Loader2, CheckCircle, AlertCircle, User, Briefcase, Settings, Clock, Eye } from 'lucide-react';
+import { useNFSeEmissionPopup } from '@/hooks/useNFSeEmissionPopup';
+import NFSeEmissionPopup from '@/components/NFSeEmissionPopup';
+import { FileText, Building, Calculator, Loader2, CheckCircle, AlertCircle, User, Briefcase, Settings, Clock, Eye, Download, ExternalLink, FileDown } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
+import { useNfseCompanyData } from '@/hooks/useNfseCompanyData';
 
 interface NFSeFormData {
   // Dados do Prestador (empresa)
@@ -73,6 +76,21 @@ interface Empresa {
 
 const EmitirNFSe = () => {
   const { toast } = useToast();
+
+  // Utility function to construct XML download URL
+  const getXmlDownloadUrl = (caminhoXml: string) => {
+    if (!caminhoXml) return null;
+
+    // If it's already a full URL, return as is
+    if (caminhoXml.startsWith('http')) {
+      return caminhoXml;
+    }
+
+    // If it's a path, construct the full URL
+    const baseUrl = 'https://focusnfe.s3.sa-east-1.amazonaws.com';
+    const fullPath = caminhoXml.startsWith('/') ? caminhoXml : `/${caminhoXml}`;
+    return `${baseUrl}${fullPath}`;
+  };
   const {
     emitirNFSe,
     consultarNFSe,
@@ -112,6 +130,17 @@ const EmitirNFSe = () => {
     }
   });
 
+  // Hook do popup fixo de emissão
+  const {
+    isOpen: isPopupOpen,
+    status: popupStatus,
+    startMonitoring: startPopupMonitoring,
+    stopMonitoring: stopPopupMonitoring,
+    closePopup,
+    handleDownloadXML,
+    handleViewPrefeitura
+  } = useNFSeEmissionPopup();
+
   const [activeTab, setActiveTab] = useState('prestador');
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [empresaSelecionada, setEmpresaSelecionada] = useState<string>('');
@@ -131,6 +160,7 @@ const EmitirNFSe = () => {
     handleSubmit,
     watch,
     setValue,
+    trigger,
     formState: { errors },
     reset
   } = useForm<NFSeFormData>({
@@ -153,6 +183,17 @@ const EmitirNFSe = () => {
   });
 
   const watchedValues = watch();
+
+  // Hook para carregar dados de NFSe da empresa
+  const {
+    companyData,
+    loading: loadingCompanyData,
+    loadCompanyNfseData,
+    getBestServiceItem,
+    getBestMunicipalTaxCode,
+    getAllServiceItems,
+    getAllMunicipalTaxCodes,
+  } = useNfseCompanyData();
 
   // Função para salvar NFSe completa no Supabase
   const salvarNFSeCompleta = async (referencia: string, nfseData: any, empresaId: string) => {
@@ -253,6 +294,35 @@ const EmitirNFSe = () => {
     };
   }, []); // Removido buscarEmpresasSupabase das dependências
 
+  // Verificar se há dados para duplicar no localStorage
+  useEffect(() => {
+    const dadosParaDuplicar = localStorage.getItem('dadosParaDuplicar');
+    if (dadosParaDuplicar) {
+      try {
+        const dados = JSON.parse(dadosParaDuplicar);
+        console.log('🔄 Preenchendo dados para duplicação:', dados);
+
+        // Preencher campos do formulário
+        Object.keys(dados).forEach(key => {
+          if (dados[key] !== undefined && dados[key] !== null && dados[key] !== '') {
+            setValue(key as keyof NFSeFormData, dados[key]);
+          }
+        });
+
+        // Limpar dados do localStorage após usar
+        localStorage.removeItem('dadosParaDuplicar');
+
+        toast({
+          title: "Dados preenchidos",
+          description: "Os dados da NFSe foram preenchidos para duplicação.",
+        });
+      } catch (error) {
+        console.error('Erro ao carregar dados para duplicação:', error);
+        localStorage.removeItem('dadosParaDuplicar');
+      }
+    }
+  }, [setValue, toast]);
+
   // Preencher dados do prestador automaticamente quando empresa for selecionada
   useEffect(() => {
     const carregarDadosEmpresa = async () => {
@@ -267,7 +337,11 @@ const EmitirNFSe = () => {
           setValue('inscricao_municipal', empresaEncontrada.inscricao_municipal || '');
           setValue('codigo_municipio_prestador', empresaEncontrada.codigo_municipio || '');
 
-          // Preencher configurações padrão da empresa
+          // Carregar dados de NFSe da empresa (múltiplos códigos e itens)
+          console.log('🔧 Carregando configurações de NFSe da empresa...');
+          await loadCompanyNfseData(empresaEncontrada.id);
+
+          // Preencher configurações padrão da empresa (será atualizado após carregar dados de NFSe)
           if (empresaEncontrada.aliquota) {
             setValue('aliquota', Number(empresaEncontrada.aliquota));
           }
@@ -305,7 +379,61 @@ const EmitirNFSe = () => {
     };
 
     carregarDadosEmpresa();
-  }, [empresaSelecionada, empresas, setValue, empresaCarregada]);
+  }, [empresaSelecionada, empresas, empresaCarregada]); // Removido setValue e loadCompanyNfseData para evitar loops
+
+  // Preencher campos de NFSe quando os dados da empresa forem carregados (apenas uma vez por empresa)
+  useEffect(() => {
+    if (companyData && !watchedValues.item_lista_servico && !watchedValues.codigo_tributario_municipio) {
+      console.log('🔧 Preenchendo campos de NFSe com dados da empresa:', companyData);
+
+      // Preencher com o melhor item de serviço disponível
+      const bestServiceItem = getBestServiceItem();
+      if (bestServiceItem) {
+        setValue('item_lista_servico', bestServiceItem);
+        console.log('✅ Item de serviço preenchido:', bestServiceItem);
+      }
+
+      // Preencher com o melhor código tributário disponível
+      const bestTaxCode = getBestMunicipalTaxCode();
+      if (bestTaxCode) {
+        setValue('codigo_tributario_municipio', bestTaxCode);
+        console.log('✅ Código tributário preenchido:', bestTaxCode);
+      }
+
+      // Preencher dados de finalização com configurações da empresa
+      const legacyConfig = companyData.legacyConfig;
+      if (legacyConfig.aliquota !== undefined) {
+        setValue('aliquota', Number(legacyConfig.aliquota));
+        setValue('aliquota_iss', Number(legacyConfig.aliquota));
+      }
+      if (legacyConfig.iss_retido !== undefined) {
+        setValue('iss_retido', legacyConfig.iss_retido);
+      }
+      if (legacyConfig.natureza_operacao) {
+        setValue('natureza_operacao', legacyConfig.natureza_operacao);
+      }
+      if (legacyConfig.optante_simples_nacional !== undefined) {
+        setValue('optante_simples_nacional', legacyConfig.optante_simples_nacional);
+      }
+      if (legacyConfig.incentivador_cultural !== undefined) {
+        setValue('incentivador_cultural', legacyConfig.incentivador_cultural);
+      }
+
+      toast({
+        title: "Configurações de NFSe carregadas",
+        description: `Dados de NFSe preenchidos automaticamente para ${companyData.razao_social}`,
+      });
+    }
+  }, [companyData?.id]); // Apenas quando o ID da empresa muda
+
+  // Debug: Log dos dados disponíveis para os dropdowns (apenas uma vez quando companyData muda)
+  useEffect(() => {
+    if (companyData) {
+      console.log('🔍 Debug - Dados da empresa carregados:', companyData);
+      console.log('🔍 Debug - Itens de serviço disponíveis:', getAllServiceItems());
+      console.log('🔍 Debug - Códigos tributários disponíveis:', getAllMunicipalTaxCodes());
+    }
+  }, [companyData]);
 
   // Função para consultar CNPJ/CPF e preencher dados automaticamente
   const consultarDocumento = async (documento: string, tipo: 'cpf' | 'cnpj') => {
@@ -428,6 +556,114 @@ const EmitirNFSe = () => {
     }
   };
 
+  // Função para buscar código IBGE do município
+  const buscarCodigoIBGEMunicipio = async (nomeMunicipio: string, uf: string): Promise<string> => {
+    try {
+      if (!nomeMunicipio || !uf) {
+        console.warn('⚠️ Nome do município ou UF não fornecidos para busca do código IBGE');
+        return '';
+      }
+
+      console.log(`🔍 Buscando código IBGE para: ${nomeMunicipio}/${uf}`);
+
+      // Buscar municípios do estado na API do IBGE
+      const response = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+
+      if (!response.ok) {
+        throw new Error('Erro ao consultar API do IBGE');
+      }
+
+      const municipios = await response.json();
+
+      // Normalizar nome do município para comparação
+      const nomeNormalizado = nomeMunicipio
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+        .trim();
+
+      // Buscar município correspondente
+      const municipioEncontrado = municipios.find((municipio: any) => {
+        const nomeMunicipioNormalizado = municipio.nome
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim();
+
+        return nomeMunicipioNormalizado === nomeNormalizado;
+      });
+
+      if (municipioEncontrado) {
+        console.log(`✅ Código IBGE encontrado: ${municipioEncontrado.id} para ${nomeMunicipio}/${uf}`);
+        return municipioEncontrado.id.toString();
+      } else {
+        console.warn(`⚠️ Município não encontrado na API do IBGE: ${nomeMunicipio}/${uf}`);
+        return '';
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar código IBGE do município:', error);
+      return '';
+    }
+  };
+
+  // Função para normalizar UF
+  const normalizarUF = (uf: string): string => {
+    if (!uf) return '';
+
+    // Converter para maiúsculo e remover espaços
+    const ufLimpa = uf.toUpperCase().trim();
+
+    // Mapeamento de nomes completos para siglas
+    const mapeamentoUF: { [key: string]: string } = {
+      'ACRE': 'AC',
+      'ALAGOAS': 'AL',
+      'AMAPÁ': 'AP',
+      'AMAPA': 'AP',
+      'AMAZONAS': 'AM',
+      'BAHIA': 'BA',
+      'CEARÁ': 'CE',
+      'CEARA': 'CE',
+      'DISTRITO FEDERAL': 'DF',
+      'ESPÍRITO SANTO': 'ES',
+      'ESPIRITO SANTO': 'ES',
+      'GOIÁS': 'GO',
+      'GOIAS': 'GO',
+      'MARANHÃO': 'MA',
+      'MARANHAO': 'MA',
+      'MATO GROSSO': 'MT',
+      'MATO GROSSO DO SUL': 'MS',
+      'MINAS GERAIS': 'MG',
+      'PARÁ': 'PA',
+      'PARA': 'PA',
+      'PARAÍBA': 'PB',
+      'PARAIBA': 'PB',
+      'PARANÁ': 'PR',
+      'PARANA': 'PR',
+      'PERNAMBUCO': 'PE',
+      'PIAUÍ': 'PI',
+      'PIAUI': 'PI',
+      'RIO DE JANEIRO': 'RJ',
+      'RIO GRANDE DO NORTE': 'RN',
+      'RIO GRANDE DO SUL': 'RS',
+      'RONDÔNIA': 'RO',
+      'RONDONIA': 'RO',
+      'RORAIMA': 'RR',
+      'SANTA CATARINA': 'SC',
+      'SÃO PAULO': 'SP',
+      'SAO PAULO': 'SP',
+      'SERGIPE': 'SE',
+      'TOCANTINS': 'TO'
+    };
+
+    // Se já é uma sigla válida, retornar
+    if (ufLimpa.length === 2) {
+      return ufLimpa;
+    }
+
+    // Buscar no mapeamento
+    return mapeamentoUF[ufLimpa] || ufLimpa;
+  };
+
   // Função para consultar CNPJ usando a Brasil API via Supabase
   const consultarCNPJTomador = async (cnpj: string) => {
     if (!cnpj || cnpj.replace(/[^\d]/g, '').length !== 14) {
@@ -452,6 +688,11 @@ const EmitirNFSe = () => {
 
       if (data && data.razao_social) {
         console.log('✅ Dados do CNPJ encontrados via Brasil API:', data);
+        console.log('🔍 Campos disponíveis na resposta:', Object.keys(data));
+
+        // Normalizar UF
+        const ufNormalizada = normalizarUF(data.uf || data.estado || data.estado_uf || '');
+        const nomeMunicipio = data.municipio || data.cidade || '';
 
         // Preencher campos automaticamente com os dados da Brasil API
         setValue('razao_social_tomador', data.razao_social || '');
@@ -461,8 +702,26 @@ const EmitirNFSe = () => {
         setValue('numero_tomador', data.numero || '');
         setValue('complemento_tomador', ''); // Brasil API não tem complemento separado
         setValue('bairro_tomador', data.bairro || '');
-        setValue('codigo_municipio_tomador', data.codigo_municipio || '');
-        setValue('uf_tomador', data.estado_uf || '');
+        setValue('municipio_tomador', nomeMunicipio);
+        setValue('uf_tomador', ufNormalizada);
+
+        // Buscar código IBGE correto do município
+        let codigoMunicipio = data.codigo_municipio || data.municipio_codigo || '';
+
+        // Se não temos código ou o código não tem 7 dígitos, buscar na API do IBGE
+        if (!codigoMunicipio || codigoMunicipio.length !== 7) {
+          console.log('🔍 Código do município inválido ou ausente, buscando na API do IBGE...');
+          codigoMunicipio = await buscarCodigoIBGEMunicipio(nomeMunicipio, ufNormalizada);
+        }
+
+        setValue('codigo_municipio_tomador', codigoMunicipio);
+
+        console.log('📝 Campos preenchidos:', {
+          municipio: nomeMunicipio,
+          uf: ufNormalizada,
+          codigo_municipio: codigoMunicipio,
+          codigo_municipio_original: data.codigo_municipio || data.municipio_codigo
+        });
 
         toast({
           title: "CNPJ consultado com sucesso",
@@ -492,6 +751,11 @@ const EmitirNFSe = () => {
 
         if (data.status === 'OK') {
           console.log('✅ Dados do CNPJ encontrados via ReceitaWS:', data);
+          console.log('🔍 Campos disponíveis na resposta:', Object.keys(data));
+
+          // Normalizar UF
+          const ufNormalizada = normalizarUF(data.uf || '');
+          const nomeMunicipio = data.municipio || '';
 
           setValue('razao_social_tomador', data.nome || '');
           setValue('email_tomador', data.email || '');
@@ -500,8 +764,26 @@ const EmitirNFSe = () => {
           setValue('numero_tomador', data.numero || '');
           setValue('complemento_tomador', data.complemento || '');
           setValue('bairro_tomador', data.bairro || '');
-          setValue('codigo_municipio_tomador', data.municipio_codigo || '');
-          setValue('uf_tomador', data.uf || '');
+          setValue('municipio_tomador', nomeMunicipio);
+          setValue('uf_tomador', ufNormalizada);
+
+          // Buscar código IBGE correto do município
+          let codigoMunicipio = data.municipio_codigo || data.codigo_municipio || '';
+
+          // Se não temos código ou o código não tem 7 dígitos, buscar na API do IBGE
+          if (!codigoMunicipio || codigoMunicipio.length !== 7) {
+            console.log('🔍 Código do município inválido ou ausente, buscando na API do IBGE...');
+            codigoMunicipio = await buscarCodigoIBGEMunicipio(nomeMunicipio, ufNormalizada);
+          }
+
+          setValue('codigo_municipio_tomador', codigoMunicipio);
+
+          console.log('📝 Campos preenchidos:', {
+            municipio: nomeMunicipio,
+            uf: ufNormalizada,
+            codigo_municipio: codigoMunicipio,
+            codigo_municipio_original: data.municipio_codigo || data.codigo_municipio
+          });
 
           toast({
             title: "CNPJ consultado com sucesso",
@@ -679,8 +961,30 @@ const EmitirNFSe = () => {
 
       console.log('✅ Resultado da emissão:', resultado);
 
+      // Validar resposta da API antes de prosseguir
+      if (!resultado) {
+        throw new Error('Resposta vazia da API Focus NFe');
+      }
+
+      // Verificar se houve erro imediato na emissão
+      if (resultado.erro || resultado.status === 'erro' || (resultado.codigo && resultado.codigo !== 202)) {
+        console.error('❌ Erro imediato na emissão:', resultado);
+
+        // Iniciar popup com erro
+        await startPopupMonitoring(referencia, empresaSelecionada, {
+          ...resultado,
+          status: 'erro',
+          errorDetails: resultado.mensagem || resultado.erro || 'Erro na emissão da NFSe',
+          errorCode: resultado.codigo?.toString()
+        });
+
+        setIsLoading(false);
+        return;
+      }
+
+      // Se NFSe já foi autorizada imediatamente (raro, mas possível)
       if (resultado.status === 'autorizado') {
-        // NFSe já autorizada imediatamente
+        console.log('✅ NFSe autorizada imediatamente');
         setNfseStatus('authorized');
         setIsLoading(false);
 
@@ -700,35 +1004,35 @@ const EmitirNFSe = () => {
         reset();
         setNfseReferencia('');
         setActiveTab('prestador');
-      } else if (resultado.status === 'processando_autorizacao' || resultado.status === 'processando') {
-        // Iniciar monitoramento automático
-        console.log('🔄 Iniciando monitoramento automático para referência:', referencia);
+      } else {
+        // Para qualquer outro status (processando, aceito, etc.), iniciar monitoramento com popup fixo
+        console.log('🔄 Iniciando monitoramento com popup fixo para referência:', referencia);
+        console.log('📊 Status inicial da NFSe:', resultado.status);
+        console.log('📊 Código de resposta:', resultado.codigo);
 
-        toast({
-          title: "NFSe enviada para processamento",
-          description: "Monitoramento automático iniciado. Aguarde...",
-        });
+        // Iniciar popup fixo de monitoramento
+        await startPopupMonitoring(referencia, empresaSelecionada, resultado);
 
-        // Iniciar monitoramento (o loading será controlado pelo hook)
-        await startMonitoring(referencia, empresaSelecionada);
+        // Resetar loading do formulário
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao emitir NFSe:', error);
+
+      // Mesmo com erro, iniciar monitoramento com popup para verificar se a NFSe foi realmente emitida
+      if (nfseReferencia) {
+        console.log('🔄 Iniciando monitoramento com popup após erro para verificar status real...');
+
+        // Iniciar popup fixo de monitoramento mesmo com erro
+        await startPopupMonitoring(nfseReferencia, empresaSelecionada);
       } else {
         setNfseStatus('error');
-        setIsLoading(false);
-
         toast({
           variant: "destructive",
           title: "Erro na emissão da NFSe",
-          description: resultado.mensagem_sefaz || resultado.mensagem || "Erro desconhecido",
+          description: "Ocorreu um erro inesperado. Tente novamente.",
         });
       }
-    } catch (error) {
-      console.error('Erro ao emitir NFSe:', error);
-      setNfseStatus('error');
-      toast({
-        variant: "destructive",
-        title: "Erro na emissão da NFSe",
-        description: "Ocorreu um erro inesperado. Tente novamente.",
-      });
     } finally {
       setIsLoading(false);
     }
@@ -1143,22 +1447,81 @@ const EmitirNFSe = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="item_lista_servico">Item da Lista de Serviços</Label>
-                      <Input
-                        id="item_lista_servico"
-                        placeholder="1406"
-                        {...register('item_lista_servico', { required: 'Item da lista é obrigatório' })}
-                      />
+                      {getAllServiceItems().length > 0 ? (
+                        <div>
+                          <Select
+                            value={watchedValues.item_lista_servico || ''}
+                            onValueChange={(value) => {
+                              console.log('🔄 Tentando alterar item de serviço para:', value);
+                              setValue('item_lista_servico', value);
+                              trigger('item_lista_servico');
+                              console.log('✅ Item de serviço selecionado:', value);
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione um item de serviço" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getAllServiceItems().map((item) => (
+                                <SelectItem key={`service-${item.value}`} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {/* Hidden input for form validation */}
+                          <input
+                            type="hidden"
+                            {...register('item_lista_servico', { required: 'Item da lista é obrigatório' })}
+                          />
+                        </div>
+                      ) : (
+                        <Input
+                          id="item_lista_servico"
+                          placeholder="1406"
+                          {...register('item_lista_servico', { required: 'Item da lista é obrigatório' })}
+                        />
+                      )}
                       {errors.item_lista_servico && (
                         <p className="text-sm text-red-500">{errors.item_lista_servico.message}</p>
                       )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="codigo_tributario_municipio">Código Tributário do Município</Label>
-                      <Input
-                        id="codigo_tributario_municipio"
-                        placeholder="332100001"
-                        {...register('codigo_tributario_municipio', { required: 'Código tributário é obrigatório' })}
-                      />
+                      {getAllMunicipalTaxCodes().length > 0 ? (
+                        <div>
+                          <Select
+                            value={watchedValues.codigo_tributario_municipio || ''}
+                            onValueChange={(value) => {
+                              setValue('codigo_tributario_municipio', value);
+                              trigger('codigo_tributario_municipio');
+                              console.log('✅ Código tributário selecionado:', value);
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione um código tributário" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getAllMunicipalTaxCodes().map((code) => (
+                                <SelectItem key={`tax-${code.value}`} value={code.value}>
+                                  {code.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {/* Hidden input for form validation */}
+                          <input
+                            type="hidden"
+                            {...register('codigo_tributario_municipio', { required: 'Código tributário é obrigatório' })}
+                          />
+                        </div>
+                      ) : (
+                        <Input
+                          id="codigo_tributario_municipio"
+                          placeholder="332100001"
+                          {...register('codigo_tributario_municipio', { required: 'Código tributário é obrigatório' })}
+                        />
+                      )}
                       {errors.codigo_tributario_municipio && (
                         <p className="text-sm text-red-500">{errors.codigo_tributario_municipio.message}</p>
                       )}
@@ -1312,29 +1675,118 @@ const EmitirNFSe = () => {
                         )}
 
                         {monitoringStatus.status === 'completed' && monitoringStatus.nfseData && (
-                          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded">
-                            <div className="flex items-center gap-2 text-green-800">
-                              <CheckCircle className="h-4 w-4" />
-                              <span className="font-medium">NFSe Autorizada!</span>
+                          <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+                            <div className="flex items-center gap-2 text-green-800 mb-3">
+                              <CheckCircle className="h-5 w-5" />
+                              <span className="font-semibold text-lg">🎉 NFSe Autorizada com Sucesso!</span>
                             </div>
-                            {monitoringStatus.nfseData.numero && (
-                              <div className="text-sm text-green-700 mt-1">
-                                Número: {monitoringStatus.nfseData.numero}
-                              </div>
-                            )}
-                            {monitoringStatus.nfseData.url_pdf && (
-                              <div className="mt-2">
+
+                            {/* NFSe Details */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                              {monitoringStatus.nfseData.numero && (
+                                <div className="text-sm">
+                                  <span className="font-medium text-green-800">Número da NFSe:</span>
+                                  <span className="ml-2 text-green-700">{monitoringStatus.nfseData.numero}</span>
+                                </div>
+                              )}
+                              {monitoringStatus.nfseData.codigo_verificacao && (
+                                <div className="text-sm">
+                                  <span className="font-medium text-green-800">Código de Verificação:</span>
+                                  <span className="ml-2 text-green-700 font-mono">{monitoringStatus.nfseData.codigo_verificacao}</span>
+                                </div>
+                              )}
+                              {monitoringStatus.nfseData.data_emissao && (
+                                <div className="text-sm">
+                                  <span className="font-medium text-green-800">Data de Emissão:</span>
+                                  <span className="ml-2 text-green-700">
+                                    {new Date(monitoringStatus.nfseData.data_emissao).toLocaleDateString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </span>
+                                </div>
+                              )}
+                              {monitoringStatus.nfseData.ref && (
+                                <div className="text-sm">
+                                  <span className="font-medium text-green-800">Referência:</span>
+                                  <span className="ml-2 text-green-700 font-mono">{monitoringStatus.nfseData.ref}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Download Options */}
+                            <div className="flex flex-wrap gap-2">
+                              {/* PDF Download */}
+                              {monitoringStatus.nfseData.url_danfse && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => window.open(monitoringStatus.nfseData.url_danfse, '_blank')}
+                                  className="text-green-700 border-green-300 hover:bg-green-100"
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Baixar PDF
+                                </Button>
+                              )}
+
+                              {/* XML Download */}
+                              {monitoringStatus.nfseData.caminho_xml_nota_fiscal && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    const xmlUrl = getXmlDownloadUrl(monitoringStatus.nfseData.caminho_xml_nota_fiscal);
+                                    if (xmlUrl) {
+                                      console.log('📄 Baixando XML da NFSe:', xmlUrl);
+                                      window.open(xmlUrl, '_blank');
+                                    } else {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "Erro",
+                                        description: "URL do XML não disponível",
+                                      });
+                                    }
+                                  }}
+                                  className="text-green-700 border-green-300 hover:bg-green-100"
+                                >
+                                  <FileDown className="h-4 w-4 mr-2" />
+                                  Baixar XML
+                                </Button>
+                              )}
+
+                              {/* Municipality Portal */}
+                              {monitoringStatus.nfseData.url && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => window.open(monitoringStatus.nfseData.url, '_blank')}
+                                  className="text-green-700 border-green-300 hover:bg-green-100"
+                                >
+                                  <ExternalLink className="h-4 w-4 mr-2" />
+                                  Ver no Portal da Prefeitura
+                                </Button>
+                              )}
+
+                              {/* Fallback PDF option */}
+                              {!monitoringStatus.nfseData.url_danfse && monitoringStatus.nfseData.url_pdf && (
                                 <Button
                                   type="button"
                                   variant="outline"
                                   size="sm"
                                   onClick={() => window.open(monitoringStatus.nfseData.url_pdf, '_blank')}
+                                  className="text-green-700 border-green-300 hover:bg-green-100"
                                 >
                                   <Eye className="h-4 w-4 mr-2" />
                                   Visualizar PDF
                                 </Button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
                         )}
 
@@ -1388,6 +1840,17 @@ const EmitirNFSe = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Popup fixo de monitoramento NFSe */}
+      <NFSeEmissionPopup
+        isOpen={isPopupOpen}
+        onClose={closePopup}
+        status={popupStatus}
+        referencia={nfseReferencia}
+        onDownloadXML={handleDownloadXML}
+        onViewPrefeitura={handleViewPrefeitura}
+        onStopMonitoring={stopPopupMonitoring}
+      />
     </Layout>
   );
 };
