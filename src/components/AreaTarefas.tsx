@@ -8,20 +8,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Tarefa, TarefaInsert } from '@/types/database';
-import { 
-  CheckSquare, 
-  Plus, 
+import {
+  CheckSquare,
+  Plus,
   Clock,
   CheckCircle,
   XCircle,
   Loader2,
-  Filter
+  Filter,
+  Calendar as CalendarIcon,
+  Check,
+  Layers,
+  Columns3,
+  Pencil
 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+type HomeTask = Tarefa & { board_id?: string; column_id?: string }
+
 import { useAuth } from '@/hooks/useAuth';
 
 export function AreaTarefas() {
-  const [tarefas, setTarefas] = useState<Tarefa[]>([]);
+  const [tarefas, setTarefas] = useState<HomeTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroStatus, setFiltroStatus] = useState<string>('todas');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -31,181 +39,158 @@ export function AreaTarefas() {
     prioridade: 'media',
     status: 'pendente'
   });
-  
+  // Mapas auxiliares para exibir nome/cores
+  const [boardMap, setBoardMap] = useState<Record<string, { id: string; name: string; settings?: any }>>({})
+  const [columnMap, setColumnMap] = useState<Record<string, { id: string; name: string; board_id: string }>>({})
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [tarefaEditando, setTarefaEditando] = useState<Tarefa | null>(null)
+
+  // Kanban integration
+  const [boards, setBoards] = useState<Array<{ id: string; name: string }>>([])
+  const [columns, setColumns] = useState<Array<{ id: string; name: string; board_id: string }>>([])
+  const [selectedBoard, setSelectedBoard] = useState<string>('')
+  const [selectedColumn, setSelectedColumn] = useState<string>('')
+
   const { toast } = useToast();
   const { user } = useAuth();
 
   useEffect(() => {
     if (user) {
-      fetchTarefas();
+      fetchBoardsAndTarefas();
     }
-  }, [user, filtroStatus]);
+  }, [user, filtroStatus, selectedBoard]);
 
-  const fetchTarefas = async () => {
-    if (!user) return;
-
+  const fetchBoardsAndTarefas = async () => {
+    if (!user) return
     try {
-      setLoading(true);
-      
-      // Tentar carregar do localStorage primeiro
-      const tarefasLocal = JSON.parse(localStorage.getItem('tarefas_locais') || '[]');
-      
-      if (tarefasLocal.length > 0) {
-        let tarefasFiltradas = tarefasLocal;
-        if (filtroStatus !== 'todas') {
-          tarefasFiltradas = tarefasLocal.filter((t: Tarefa) => t.status === filtroStatus);
-        }
-        setTarefas(tarefasFiltradas);
-      } else {
-        // Usar dados de exemplo
-        const tarefasExemplo: Tarefa[] = [
-          {
-            id: 'exemplo-1',
-            titulo: 'Revisar NFSe do cliente ABC',
-            descricao: 'Verificar se todas as NFSe foram emitidas corretamente',
-            status: 'pendente',
-            prioridade: 'alta',
-            data_criacao: new Date().toISOString(),
-            data_vencimento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-            usuario_id: user.id,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          {
-            id: 'exemplo-2',
-            titulo: 'Preparar relatório mensal',
-            descricao: 'Compilar dados fiscais do mês anterior',
-            status: 'em_andamento',
-            prioridade: 'media',
-            data_criacao: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-            data_vencimento: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
-            usuario_id: user.id,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ];
+      setLoading(true)
+      // 1) Boards do usuário
+      const { data: memberships } = await supabase
+        .from('board_members')
+        .select('board_id')
+        .eq('user_id', user.id)
+      const boardIds: string[] = (memberships || []).map((m: any) => m.board_id)
+      if (boardIds.length === 0) { setBoards([]); setColumns([]); setTarefas([]); return }
+      const { data: boardsData } = await supabase
+        .from('boards')
+        .select('id,name,settings')
+        .in('id', boardIds)
+        .eq('is_archived', false)
+        .order('name')
+      setBoards(boardsData || [])
+      if (!selectedBoard && boardsData && boardsData[0]) setSelectedBoard(boardsData[0].id)
 
-        if (filtroStatus === 'todas') {
-          setTarefas(tarefasExemplo);
-        } else {
-          setTarefas(tarefasExemplo.filter(t => t.status === filtroStatus));
-        }
+      // 2) Carregar colunas do board selecionado (apenas para o formulário)
+      if (selectedBoard) {
+        const { data: cols } = await supabase.from('board_columns').select('id,name,board_id').eq('board_id', selectedBoard).order('position')
+        setColumns(cols || [])
+      // Preenche mapas de boards/colunas para exibição
+      const bmap: Record<string, { id: string; name: string; settings?: any }> = {}
+      ;(boardsData || []).forEach((b:any)=> bmap[b.id] = b)
+      setBoardMap(bmap)
+      const { data: colsAll } = await supabase.from('board_columns').select('id,name,board_id').in('board_id', boardIds)
+      const cmap: Record<string, { id: string; name: string; board_id: string }> = {}
+      ;(colsAll || []).forEach((c:any)=> cmap[c.id] = c)
+      setColumnMap(cmap)
+
+      } else {
+        setColumns([])
       }
+
+      // 3) Tarefas de todos os boards
+      const { data: tasks } = await supabase
+        .from('tasks')
+        .select('id,board_id,column_id,title,description,priority,start_at,due_at,end_at,created_at,updated_at,created_by,is_archived,tags')
+        .in('board_id', boardIds)
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false })
+
+      const mapped: HomeTask[] = (tasks || []).map((t: any) => ({
+        id: t.id,
+        titulo: t.title || 'Sem título',
+        descricao: t.description || '',
+        status: t.end_at ? 'concluida' : (t.start_at ? 'em_andamento' : 'pendente'),
+        prioridade: (t.priority as any) || 'media',
+        data_criacao: t.created_at,
+        data_vencimento: t.due_at || undefined,
+        data_conclusao: t.end_at || undefined,
+        usuario_id: t.created_by || user.id,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        board_id: t.board_id,
+        column_id: t.column_id,
+        tags: t.tags || []
+      }))
+
+      const filtered = filtroStatus === 'todas' ? mapped : mapped.filter(t => t.status === filtroStatus)
+      setTarefas(filtered)
+
     } catch (error) {
-      console.error('Erro ao buscar tarefas:', error);
+      console.error('Erro ao buscar boards/tarefas:', error)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleCriarTarefa = async () => {
     if (!user || !novaTarefa.titulo) {
-      toast({
-        variant: "destructive",
-        title: "Erro",
-        description: "Título da tarefa é obrigatório",
-      });
+      toast({ variant: 'destructive', title: 'Erro', description: 'Título da tarefa é obrigatório' });
       return;
     }
-
-    try {
-      const novaTarefaCompleta: Tarefa = {
-        id: `local-${Date.now()}`,
-        titulo: novaTarefa.titulo!,
-        descricao: novaTarefa.descricao || '',
-        status: novaTarefa.status || 'pendente',
-        prioridade: novaTarefa.prioridade || 'media',
-        data_criacao: new Date().toISOString(),
-        data_vencimento: novaTarefa.data_vencimento,
-        usuario_id: user.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      // Adicionar à lista atual
-      setTarefas(prev => [novaTarefaCompleta, ...prev]);
-
-      // Salvar no localStorage
-      const tarefasLocal = JSON.parse(localStorage.getItem('tarefas_locais') || '[]');
-      tarefasLocal.unshift(novaTarefaCompleta);
-      localStorage.setItem('tarefas_locais', JSON.stringify(tarefasLocal));
-
-      toast({
-        title: "Tarefa criada",
-        description: "A tarefa foi criada com sucesso",
-      });
-
-      setIsDialogOpen(false);
-      setNovaTarefa({
-        titulo: '',
-        descricao: '',
-        prioridade: 'media',
-        status: 'pendente'
-      });
-    } catch (error) {
-      console.error('Erro ao criar tarefa:', error);
-      toast({
-        variant: "destructive",
-        title: "Erro",
-        description: "Não foi possível criar a tarefa",
-      });
+    if (!selectedBoard || !selectedColumn) {
+      toast({ variant: 'destructive', title: 'Selecione o quadro e a coluna' });
+      return;
     }
-  };
-
-  const handleAtualizarStatus = (tarefaId: string, novoStatus: Tarefa['status']) => {
     try {
-      // Atualizar na lista atual
-      setTarefas(prev => prev.map(tarefa => {
-        if (tarefa.id === tarefaId) {
-          const tarefaAtualizada = {
-            ...tarefa,
-            status: novoStatus,
-            updated_at: new Date().toISOString()
-          };
-          
-          if (novoStatus === 'concluida') {
-            tarefaAtualizada.data_conclusao = new Date().toISOString();
-          }
-          
-          return tarefaAtualizada;
-        }
-        return tarefa;
-      }));
+      const { data, error } = await supabase.from('tasks').insert({
+        board_id: selectedBoard,
+        column_id: selectedColumn,
+        title: novaTarefa.titulo,
+        description: novaTarefa.descricao || '',
+        priority: (novaTarefa.prioridade || 'media') as any,
+        start_at: null,
+        due_at: novaTarefa.data_vencimento || null,
+        end_at: null,
+        tags: [],
+        progress: 0,
+        is_archived: false,
+        sort_order: 9999,
+        created_by: user.id
+      }).select('*').single()
+      if (error) throw error
 
-      // Atualizar no localStorage
-      const tarefasLocal = JSON.parse(localStorage.getItem('tarefas_locais') || '[]');
-      const tarefasAtualizadas = tarefasLocal.map((tarefa: Tarefa) => {
-        if (tarefa.id === tarefaId) {
-          const tarefaAtualizada = {
-            ...tarefa,
-            status: novoStatus,
-            updated_at: new Date().toISOString()
-          };
-          
-          if (novoStatus === 'concluida') {
-            tarefaAtualizada.data_conclusao = new Date().toISOString();
-          }
-          
-          return tarefaAtualizada;
-        }
-        return tarefa;
-      });
-      
-      localStorage.setItem('tarefas_locais', JSON.stringify(tarefasAtualizadas));
-
-      toast({
-        title: "Status atualizado",
-        description: "O status da tarefa foi atualizado",
-      });
-    } catch (error) {
-      console.error('Erro ao atualizar status:', error);
-      toast({
-        variant: "destructive",
-        title: "Erro",
-        description: "Não foi possível atualizar o status",
-      });
+      toast({ title: 'Tarefa criada' })
+      setIsDialogOpen(false)
+      setNovaTarefa({ titulo: '', descricao: '', prioridade: 'media', status: 'pendente' })
+      setSelectedColumn('')
+      // Recarregar
+      fetchBoardsAndTarefas()
+    } catch (error: any) {
+      console.error('Erro ao criar tarefa:', error)
+      toast({ variant: 'destructive', title: 'Erro', description: error.message || 'Não foi possível criar a tarefa' })
     }
-  };
+  }
+
+  const handleAtualizarStatus = async (tarefaId: string, novoStatus: Tarefa['status']) => {
+    try {
+      // Mapeia status para campos start/end
+      let patch: any = {}
+      if (novoStatus === 'pendente') patch = { start_at: null, end_at: null }
+      if (novoStatus === 'em_andamento') patch = { start_at: new Date().toISOString(), end_at: null }
+      if (novoStatus === 'concluida') patch = { end_at: new Date().toISOString() }
+      if (novoStatus === 'cancelada') patch = { is_archived: true }
+
+      const { error } = await supabase.from('tasks').update(patch).eq('id', tarefaId)
+      if (error) throw error
+
+      // Atualiza UI local
+      setTarefas(prev => prev.map(t => t.id === tarefaId ? { ...t, status: novoStatus, updated_at: new Date().toISOString(), data_conclusao: novoStatus==='concluida' ? new Date().toISOString() : t.data_conclusao } : t))
+      toast({ title: 'Status atualizado' })
+    } catch (error: any) {
+      console.error('Erro ao atualizar status:', error)
+      toast({ variant: 'destructive', title: 'Erro', description: error.message || 'Não foi possível atualizar o status' })
+    }
+  }
 
   const getStatusIcon = (status: Tarefa['status']) => {
     switch (status) {
@@ -213,8 +198,18 @@ export function AreaTarefas() {
       case 'em_andamento': return <Loader2 className="h-4 w-4 animate-spin" />;
       case 'concluida': return <CheckCircle className="h-4 w-4" />;
       case 'cancelada': return <XCircle className="h-4 w-4" />;
+
+
     }
   };
+
+  const priorityPill = (p: Tarefa['prioridade']) => (
+    <Badge className={`text-xs ${getPrioridadeColor(p)}`}>{p}</Badge>
+  )
+
+  const statusChip = (s: Tarefa['status']) => (
+    <Badge className={`text-xs ${getStatusColor(s)}`}>{s.replace('_',' ')}</Badge>
+  )
 
   const getStatusColor = (status: Tarefa['status']) => {
     switch (status) {
@@ -233,6 +228,16 @@ export function AreaTarefas() {
       case 'urgente': return 'bg-red-100 text-red-800';
     }
   };
+  // Cor da tag (busca em boards.settings.labels pelo nome/id)
+  const getTagColor = (boardId?: string, tag?: string) => {
+    if (!boardId || !tag) return '#94a3b8'
+    const labels = boardMap[boardId]?.settings?.labels || []
+    const found = labels.find((l: any) => (
+      (typeof tag === 'string' && (l.name?.toLowerCase?.() === tag.toLowerCase() || l.id === tag))
+    ))
+    return found?.color || '#94a3b8'
+  }
+
 
   if (loading) {
     return (
@@ -257,7 +262,7 @@ export function AreaTarefas() {
             Gerencie suas atividades
           </p>
         </div>
-        
+
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="flex items-center gap-2">
@@ -293,8 +298,8 @@ export function AreaTarefas() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium">Prioridade</label>
-                  <Select 
-                    value={novaTarefa.prioridade || 'media'} 
+                  <Select
+                    value={novaTarefa.prioridade || 'media'}
                     onValueChange={(value) => setNovaTarefa({...novaTarefa, prioridade: value as any})}
                   >
                     <SelectTrigger>
@@ -316,6 +321,34 @@ export function AreaTarefas() {
                     onChange={(e) => setNovaTarefa({...novaTarefa, data_vencimento: e.target.value ? new Date(e.target.value).toISOString() : undefined})}
                   />
                 </div>
+              {/* Quadro e Coluna (coleta antes de criar) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Quadro</label>
+                  <Select value={selectedBoard} onValueChange={(v)=>{ setSelectedBoard(v); setSelectedColumn(''); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o quadro" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {boards.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Coluna</label>
+                  <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a coluna" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.filter(c => !selectedBoard || c.board_id===selectedBoard).map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               </div>
             </div>
             <DialogFooter>
@@ -344,10 +377,74 @@ export function AreaTarefas() {
             <SelectItem value="concluida">Concluídas</SelectItem>
           </SelectContent>
         </Select>
+      {/* Dialog Editar Tarefa (Home) */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Tarefa</DialogTitle>
+          </DialogHeader>
+          {tarefaEditando && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Título</label>
+                <Input value={tarefaEditando.titulo}
+                       onChange={(e)=> setTarefaEditando({ ...tarefaEditando, titulo: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Descrição</label>
+                <Textarea value={tarefaEditando.descricao||''}
+                          onChange={(e)=> setTarefaEditando({ ...tarefaEditando, descricao: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Prioridade</label>
+                  <Select value={tarefaEditando.prioridade}
+                          onValueChange={(v)=> setTarefaEditando({ ...tarefaEditando, prioridade: v as any })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="baixa">Baixa</SelectItem>
+                      <SelectItem value="media">Média</SelectItem>
+                      <SelectItem value="alta">Alta</SelectItem>
+                      <SelectItem value="urgente">Urgente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Vencimento</label>
+                  <Input type="date" value={tarefaEditando.data_vencimento?.split('T')[0] || ''}
+                         onChange={(e)=> setTarefaEditando({ ...tarefaEditando, data_vencimento: e.target.value ? new Date(e.target.value).toISOString() : undefined })} />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={()=> setIsEditOpen(false)}>Cancelar</Button>
+            <Button onClick={async()=>{
+              if (!tarefaEditando) return
+              try {
+                const patch:any = {
+                  title: tarefaEditando.titulo,
+                  description: tarefaEditando.descricao || null,
+                  priority: tarefaEditando.prioridade,
+                  due_at: tarefaEditando.data_vencimento || null,
+                }
+                const { error } = await supabase.from('tasks').update(patch).eq('id', tarefaEditando.id)
+                if (error) throw error
+                toast({ title:'Tarefa atualizada' })
+                setIsEditOpen(false)
+                fetchBoardsAndTarefas()
+              } catch (e:any) {
+                toast({ variant:'destructive', title:'Erro', description: e.message })
+              }
+            }}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       </div>
 
-      {/* Lista de Tarefas */}
-      <div className="space-y-3 max-h-[500px] overflow-y-auto">
+      {/* Lista de Tarefas - sem barra de rolagem */}
+      <div className="space-y-3">
         {tarefas.length > 0 ? (
           tarefas.map((tarefa) => (
             <Card key={tarefa.id} className="shadow-sm hover:shadow-md transition-all">
@@ -357,51 +454,50 @@ export function AreaTarefas() {
                     <div className="flex items-center gap-2 mb-2">
                       {getStatusIcon(tarefa.status)}
                       <h3 className="font-medium text-sm">{tarefa.titulo}</h3>
-                      <Badge className={`text-xs ${getStatusColor(tarefa.status)}`}>
-                        {tarefa.status.replace('_', ' ')}
-                      </Badge>
-                      <Badge className={`text-xs ${getPrioridadeColor(tarefa.prioridade)}`}>
-                        {tarefa.prioridade}
-                      </Badge>
+                      {statusChip(tarefa.status)}
+                      {priorityPill(tarefa.prioridade)}
+
+                      {/* Tags do Kanban como bolinhas com tooltip */}
+                      {Array.isArray((tarefa as any).tags) && (tarefa as any).tags.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <TooltipProvider>
+                            {(tarefa as any).tags.map((tag: string, idx: number) => (
+                              <Tooltip key={idx}>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className="inline-block w-2.5 h-2.5 rounded-full"
+                                    style={{ backgroundColor: getTagColor(tarefa.board_id, tag) }}
+                                  />
+                                </TooltipTrigger>
+                                <TooltipContent>{tag}</TooltipContent>
+                              </Tooltip>
+                            ))}
+                          </TooltipProvider>
+                        </div>
+                      )}
+
+                      {/* Metadados compactos com ícones */}
+                      {tarefa.data_vencimento && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <CalendarIcon className="h-3 w-3" /> {new Date(tarefa.data_vencimento).toLocaleDateString('pt-BR')}
+                        </span>
+                      )}
+
                     </div>
                     {tarefa.descricao && (
-                      <p className="text-xs text-muted-foreground mb-2">{tarefa.descricao}</p>
-                    )}
-                    {tarefa.data_vencimento && (
-                      <p className="text-xs text-muted-foreground">
-                        Vencimento: {new Date(tarefa.data_vencimento).toLocaleDateString('pt-BR')}
-                      </p>
+                      <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{tarefa.descricao}</p>
                     )}
                   </div>
-                  <div className="flex gap-1">
-                    {tarefa.status === 'pendente' && (
+                  {/* Ações compactas apenas com ícones */}
+                  <div className="flex items-center gap-2">
+                    {tarefa.status !== 'concluida' && (
                       <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleAtualizarStatus(tarefa.id, 'em_andamento')}
-                        className="text-xs"
-                      >
-                        Iniciar
-                      </Button>
-                    )}
-                    {tarefa.status === 'em_andamento' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
+                        size="icon"
+                        variant="ghost"
                         onClick={() => handleAtualizarStatus(tarefa.id, 'concluida')}
-                        className="text-xs"
+                        title="Marcar como concluída"
                       >
-                        Concluir
-                      </Button>
-                    )}
-                    {(tarefa.status === 'pendente' || tarefa.status === 'em_andamento') && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleAtualizarStatus(tarefa.id, 'cancelada')}
-                        className="text-xs"
-                      >
-                        Cancelar
+                        <Check className="h-4 w-4" />
                       </Button>
                     )}
                   </div>

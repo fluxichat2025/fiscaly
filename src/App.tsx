@@ -16,6 +16,13 @@ import Relatorios from "./pages/Relatorios";
 import EmpresasFocus from "./pages/EmpresasFocus";
 import NotFound from "./pages/NotFound";
 import Tarefas from "./pages/Tarefas";
+import FluxoDeCaixa from "./pages/FluxoDeCaixa";
+import Recebimentos from "./pages/Recebimentos";
+import RelatoriosFinanceiros from "./pages/RelatoriosFinanceiros";
+import ContasPagar from "./pages/ContasPagar";
+import ConciliacaoBancaria from "./pages/ConciliacaoBancaria";
+import ImpostoRenda from "./pages/ImpostoRenda";
+import Configuracoes from "./pages/Configuracoes";
 
 const queryClient = new QueryClient();
 
@@ -67,6 +74,41 @@ const App = () => (
             <Route path="/tarefas" element={
               <ProtectedRoute>
                 <Tarefas />
+              </ProtectedRoute>
+            } />
+            <Route path="/financeiro/fluxo-caixa" element={
+              <ProtectedRoute>
+                <FluxoDeCaixa />
+              </ProtectedRoute>
+            } />
+            <Route path="/financeiro/recebimentos" element={
+              <ProtectedRoute>
+                <Recebimentos />
+              </ProtectedRoute>
+            } />
+            <Route path="/financeiro/relatorios" element={
+              <ProtectedRoute>
+                <RelatoriosFinanceiros />
+              </ProtectedRoute>
+            } />
+            <Route path="/financeiro/contas-pagar" element={
+              <ProtectedRoute>
+                <ContasPagar />
+              </ProtectedRoute>
+            } />
+            <Route path="/financeiro/conciliacao" element={
+              <ProtectedRoute>
+                <ConciliacaoBancaria />
+              </ProtectedRoute>
+            } />
+            <Route path="/imposto-renda" element={
+              <ProtectedRoute>
+                <ImpostoRenda />
+              </ProtectedRoute>
+            } />
+            <Route path="/configuracoes" element={
+              <ProtectedRoute>
+                <Configuracoes />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

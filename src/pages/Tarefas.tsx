@@ -10,8 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
-import { Plus, Filter, Loader2, Search, Layers, Users, Calendar, Archive, Tag, GripVertical, Settings } from 'lucide-react'
-import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { Plus, Filter, Loader2, Search, Layers, Users, Calendar, Archive, Tag, GripVertical, Settings, MoreVertical, Grid3X3, FileText } from 'lucide-react'
+import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core'
 import { SortableList, SortableRow } from '@/components/kanban/DndWrappers'
 import SortableTask from '@/components/kanban/SortableTask'
 import SortableColumnItem from '@/components/kanban/SortableColumnItem'
@@ -21,11 +21,12 @@ import { Switch } from '@/components/ui/switch'
 import AddMemberForm from '@/components/kanban/AddMemberForm'
 import MemberList from '@/components/kanban/MemberList'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 // Tipos simplificados para o Kanban
 type UUID = string
 
-type Board = { id: UUID; name: string; description?: string | null; is_archived: boolean; owner_id?: UUID | null }
+type Board = { id: UUID; name: string; description?: string | null; is_archived: boolean; owner_id?: UUID | null; settings?: any }
 type Column = { id: UUID; board_id: UUID; name: string; position: number; wip_limit?: number | null; color?: string | null }
 type Task = {
   id: UUID
@@ -47,6 +48,8 @@ type Task = {
 type TaskComment = { id: UUID; task_id: UUID; user_id: UUID | null; content: string; created_at: string }
 
 type Checklist = { id: UUID; task_id: UUID; title: string }
+type BoardLabel = { id: string; name: string; color: string }
+
 
 type ChecklistItem = { id: UUID; checklist_id: UUID; title: string; is_done: boolean; position: number }
 
@@ -54,6 +57,40 @@ type ChecklistItem = { id: UUID; checklist_id: UUID; title: string; is_done: boo
 const priorities: Array<Task['priority']> = ['baixa', 'media', 'alta']
 const priorityBadge = (p: Task['priority']) =>
   p === 'alta' ? 'bg-red-100 text-red-700' : p === 'media' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+
+function BoardLabelsEditor({ board, onSave }: { board: Board; onSave: (labels: BoardLabel[]) => void }) {
+  const [labels, setLabels] = useState<BoardLabel[]>(() => (board.settings?.labels || []))
+  const [name, setName] = useState('')
+  const [color, setColor] = useState('#3b82f6')
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2 items-center">
+        <Input placeholder="Nome da tag" value={name} onChange={(e)=>setName(e.target.value)} className="h-9" />
+        <input type="color" value={color} onChange={(e)=>setColor(e.target.value)} className="h-9 w-12 rounded" aria-label="Cor da tag" />
+        <Button
+          onClick={()=>{
+            if (!name.trim()) return
+            const id = crypto.randomUUID()
+            setLabels(prev=> [...prev, { id, name: name.trim(), color }])
+            setName('')
+          }}
+        >Adicionar</Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {labels.map(l => (
+          <div key={l.id} className="flex items-center gap-2 px-2 py-1 rounded border" style={{ backgroundColor: l.color + '22', borderColor: l.color }}>
+            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: l.color }} />
+            <span className="text-sm">{l.name}</span>
+            <Button size="sm" variant="ghost" onClick={()=> setLabels(prev=> prev.filter(x=>x.id!==l.id))}>Remover</Button>
+          </div>
+        ))}
+      </div>
+      <div className="pt-2">
+        <Button onClick={()=> onSave(labels)}>Salvar Tags</Button>
+      </div>
+    </div>
+  )
+}
 
 const formatDateTimeLocal = (iso?: string | null) => {
   if (!iso) return ''
@@ -110,6 +147,9 @@ export default function Tarefas() {
 
   // Seleção em massa
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+
+  // Estado para drag overlay
+  const [activeTask, setActiveTask] = useState<Task | null>(null)
 
   useEffect(() => {
     const init = async () => {
@@ -295,9 +335,9 @@ export default function Tarefas() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8,
-        delay: 100,
-        tolerance: 5
+        distance: 3,
+        delay: 50,
+        tolerance: 2
       }
     })
   )
@@ -469,7 +509,13 @@ export default function Tarefas() {
 
   const renderTaskCard = (t: Task) => (
     <div key={t.id}
-      className={`rounded-md border bg-card p-3 hover:shadow-sm cursor-grab active:cursor-grabbing ${selectedIds.includes(t.id) ? 'ring-2 ring-primary' : ''}`}
+      className={`
+        rounded-md border bg-card p-3
+        hover:shadow-md hover:scale-[1.02]
+        cursor-grab active:cursor-grabbing
+        transition-all duration-200 ease-in-out
+        ${selectedIds.includes(t.id) ? 'ring-2 ring-primary' : ''}
+      `}
       onDoubleClick={async () => { setEditingTask(t); setTaskDialogOpen(true); await loadTaskDetails(t.id) }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -497,54 +543,92 @@ export default function Tarefas() {
 
   return (
     <Layout>
-      {/* Cabeçalho fixo conforme imagem */}
-      <div className="bg-background border-b sticky top-0 z-10">
-        <div className="flex items-center justify-between px-6 py-3">
+      {/* Cabeçalho fixo com kebab menu */}
+      <div className="bg-background border-b sticky top-0 z-40">
+        <div className="flex items-center justify-between px-4 md:px-5 xl:px-6 py-3 min-h-[56px]">
           <div className="flex items-center gap-3">
             <Layers className="h-5 w-5 text-primary" />
             <h1 className="text-lg font-semibold">Tarefas</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <Select value={boardId || ''} onValueChange={(v) => setBoardId(v)}>
-              <SelectTrigger className="w-32 h-8 text-sm">
-                <SelectValue placeholder="Meu Quadro" />
-              </SelectTrigger>
-              <SelectContent>
-                {boards.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => setBoardDialogOpen(true)}>
-              <Plus className="h-3 w-3 mr-1" />
-              Novo Quadro
-            </Button>
-            <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => setTemplateDialogOpen(true)}>
-              Modelos
-            </Button>
-            {boardId && (
-              <Button variant="outline" size="sm" onClick={() => setBoardSettingsOpen(true)}>
-                <Settings className="h-3 w-3 mr-1" />
-                Configurar Quadro
-              </Button>
-            )}
+          <div className="flex items-center gap-3">
+            {/* Kebab Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 w-10 p-0 hover:bg-muted focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                  aria-label="Menu de ações"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem asChild>
+                  <div className="flex items-center">
+                    <Layers className="mr-2 h-4 w-4" />
+                    <Select value={boardId || ''} onValueChange={(v) => setBoardId(v)}>
+                      <SelectTrigger className="border-none shadow-none p-0 h-auto focus:ring-0 flex-1">
+                        <SelectValue placeholder="Meu Quadro" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {boards.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setBoardDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  <span>Novo Quadro</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setColumnDialogOpen(true)}
+                  disabled={!boardId}
+                >
+                  <Grid3X3 className="mr-2 h-4 w-4" />
+                  <span>Nova Coluna</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTemplateDialogOpen(true)}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  <span>Modelos</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setBoardSettingsOpen(true)}
+                  disabled={!boardId}
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Configurar Quadro</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => openNewTask(columns[0]?.id)}
+                  disabled={!columns.length}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  <span>Nova Tarefa</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
 
       {/* Barra de filtros fixa */}
-      <div className="bg-background border-b sticky top-[49px] z-10">
-        <div className="flex items-center justify-between px-6 py-3 gap-4">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="relative">
+      <div className="bg-background border-b sticky top-[56px] z-30">
+        <div className="px-4 md:px-5 xl:px-6 py-3">
+          <div className="flex flex-col md:flex-row md:flex-wrap items-start md:items-center gap-3 lg:gap-4">
+            <div className="relative w-full md:w-auto">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 value={q}
                 onChange={e => setQ(e.target.value)}
                 placeholder="Pesquisar tarefas"
-                className="pl-8 w-64 h-9 text-sm"
+                className="pl-8 w-full md:w-64 h-10 text-sm"
               />
             </div>
             <Select value={priority || '__all__'} onValueChange={(v) => setPriority(v === '__all__' ? '' : v)}>
-              <SelectTrigger className="w-24 h-9 text-sm">
+              <SelectTrigger className="w-28 h-10 text-sm">
                 <SelectValue placeholder="Todas" />
               </SelectTrigger>
               <SelectContent>
@@ -553,7 +637,7 @@ export default function Tarefas() {
               </SelectContent>
             </Select>
             <Select value={assigneeFilter || '__all__'} onValueChange={(v) => setAssigneeFilter(v === '__all__' ? '' : v)}>
-              <SelectTrigger className="w-24 h-9 text-sm">
+              <SelectTrigger className="w-28 h-10 text-sm">
                 <SelectValue placeholder="Todos" />
               </SelectTrigger>
               <SelectContent>
@@ -565,52 +649,37 @@ export default function Tarefas() {
               placeholder="Tag"
               value={tagFilter}
               onChange={e => setTagFilter(e.target.value)}
-              className="w-20 h-9 text-sm"
+              className="w-24 h-10 text-sm"
             />
             <Input
               type="date"
               value={dueFrom}
               onChange={e => setDueFrom(e.target.value)}
-              className="w-32 h-9 text-sm"
+              className="w-36 h-10 text-sm"
             />
             <Input
               type="date"
               value={dueTo}
               onChange={e => setDueTo(e.target.value)}
-              className="w-32 h-9 text-sm"
+              className="w-36 h-10 text-sm"
             />
             <Button
               variant={onlyMine ? 'default' : 'outline'}
               size="sm"
               onClick={() => setOnlyMine(v => !v)}
-              className={onlyMine ? 'bg-blue-50' : ''}
+              className={`h-10 ${onlyMine ? 'bg-blue-50' : ''}`}
             >
-              <Users className="h-3 w-3 mr-1" />
+              <Users className="h-4 w-4 mr-2" />
               Minhas
             </Button>
             <Button
               variant={showArchived ? 'default' : 'outline'}
               size="sm"
               onClick={() => setShowArchived(v => !v)}
-              className={showArchived ? 'bg-blue-50' : ''}
+              className={`h-10 ${showArchived ? 'bg-blue-50' : ''}`}
             >
-              <Archive className="h-3 w-3 mr-1" />
+              <Archive className="h-4 w-4 mr-2" />
               Arquivadas
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setColumnDialogOpen(true)}>
-              <Plus className="h-3 w-3 mr-1" />
-              Nova Coluna
-            </Button>
-            <Button
-              size="sm"
-              className="bg-blue-600 text-white hover:bg-blue-700"
-              onClick={() => openNewTask(columns[0]?.id)}
-              disabled={!columns.length}
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Nova Tarefa
             </Button>
           </div>
         </div>
@@ -619,7 +688,7 @@ export default function Tarefas() {
       {/* Conteúdo principal com scroll */}
       <div className="flex-1 overflow-hidden">
         {selectedIds.length > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mx-6 mb-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mx-4 md:mx-5 xl:mx-6 mt-6 mb-4">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{selectedIds.length} tarefa(s) selecionada(s):</span>
               <Select onValueChange={async (destCol) => {
@@ -663,7 +732,17 @@ export default function Tarefas() {
         {loading ? (
           <div className="flex items-center justify-center p-12"><Loader2 className="h-6 w-6 animate-spin" /></div>
         ) : (
-            <DndContext sensors={sensors} onDragEnd={async (e)=>{
+            <DndContext
+              sensors={sensors}
+              onDragStart={(e) => {
+                const activeId = String(e.active?.id)
+                const task = tasks.find(t => t.id === activeId)
+                if (task) {
+                  setActiveTask(task)
+                }
+              }}
+              onDragEnd={async (e)=>{
+                setActiveTask(null)
               const activeId = String(e.active?.id)
               const overId = e.over ? String(e.over.id) : null
               const overData: any = e.over?.data?.current
@@ -766,14 +845,14 @@ export default function Tarefas() {
             {/* DnD horizontal de colunas */}
           <SortableRow ids={columns.map(c=>c.id)}>
 
-          <div className="overflow-x-auto px-6">
-            <div className="flex gap-3 pb-4 min-h-[500px]">
+          <div className="overflow-x-auto px-4 md:px-5 xl:px-6 mt-6 lg:mt-8">
+            <div className="flex gap-4 md:gap-6 pb-6 min-h-[500px]">
               {columns.map(col => (
                 <SortableColumnItem id={col.id} key={col.id}>
-                  <Card className="min-w-[320px] w-[320px]">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <Card className="min-w-[320px] w-[320px] min-h-[240px]">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 py-3">
                       <CardTitle className="text-base flex items-center gap-2 w-full">
-                        <span className="block w-full whitespace-nowrap overflow-hidden text-ellipsis">{col.name}</span>
+                        <span className="block w-full whitespace-nowrap overflow-hidden text-ellipsis max-w-[240px]">{col.name}</span>
                       </CardTitle>
                       <Popover>
                         <PopoverTrigger asChild>
@@ -804,9 +883,9 @@ export default function Tarefas() {
                         </PopoverContent>
                       </Popover>
                     </CardHeader>
-                    <CardContent className="space-y-2 min-h-[200px]">
+                    <CardContent className="space-y-2 min-h-[200px] p-4">
                       <ColumnDroppable id={`column-${col.id}`}>
-                        <div className="min-h-[150px] w-full">
+                        <div className="min-h-[180px] w-full">
                           <SortableList ids={(tasksByColumn[col.id] || []).map(t=>t.id)}>
                             {(tasksByColumn[col.id] || []).map(t=> (
                               <SortableTask id={t.id} key={t.id}>
@@ -815,8 +894,13 @@ export default function Tarefas() {
                             ))}
                           </SortableList>
                           {(tasksByColumn[col.id] || []).length === 0 && (
-                            <div className="text-center text-muted-foreground text-sm py-8" data-testid={`drop-zone-${col.id}`}>
-                              Arraste tarefas aqui
+                            <div className="text-center text-muted-foreground text-sm py-8 min-h-[120px] flex items-center justify-center border-2 border-dashed border-muted rounded-lg transition-all duration-200 hover:border-primary/50 hover:bg-primary/5" data-testid={`drop-zone-${col.id}`}>
+                              <div className="flex flex-col items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                                  <span className="text-lg">📋</span>
+                                </div>
+                                <span>Arraste tarefas aqui</span>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -831,6 +915,14 @@ export default function Tarefas() {
           </SortableRow>
 
           </>
+
+          <DragOverlay>
+            {activeTask ? (
+              <div className="transform rotate-3 scale-105 shadow-2xl">
+                {renderTaskCard(activeTask)}
+              </div>
+            ) : null}
+          </DragOverlay>
 
           </DndContext>
 
@@ -872,6 +964,99 @@ export default function Tarefas() {
             }
           }} />
         </DialogContent>
+      {/* Dialog Configurar Quadro */}
+      <Dialog open={isBoardSettingsOpen} onOpenChange={setBoardSettingsOpen}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Configurar Quadro</DialogTitle>
+          </DialogHeader>
+          {boardId ? (
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-muted-foreground">Renomear quadro</label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    placeholder="Nome do quadro"
+                    value={boards.find(b=>b.id===boardId)?.name || ''}
+                    onChange={(e)=>{
+                      const name = e.target.value
+                      setBoards(prev=> prev.map(b=> b.id===boardId ? { ...b, name } as Board : b))
+                    }}
+                  />
+                  <Button onClick={async()=>{
+                    const b = boards.find(b=>b.id===boardId)
+                    if (!b) return
+                    const { error } = await supabase.from('boards').update({ name: b.name }).eq('id', boardId)
+                    if (error) return toast({ variant:'destructive', title:'Erro', description: error.message })
+                    toast({ title:'Nome atualizado' })
+                  }}>Salvar</Button>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <label className="text-xs text-muted-foreground">Descrição</label>
+                <Textarea
+                  placeholder="Descrição do quadro"
+                  value={boards.find(b=>b.id===boardId)?.description || ''}
+                  onChange={(e)=>{
+                    const description = e.target.value
+                    setBoards(prev=> prev.map(b=> b.id===boardId ? { ...b, description } as Board : b))
+                  }}
+                />
+                <div className="mt-2">
+                  <Button variant="outline" onClick={async()=>{
+                    const b = boards.find(b=>b.id===boardId)
+                    if (!b) return
+                    const { error } = await supabase.from('boards').update({ description: b.description }).eq('id', boardId)
+                    if (error) return toast({ variant:'destructive', title:'Erro', description: error.message })
+                    toast({ title:'Descrição atualizada' })
+                  }}>Salvar descrição</Button>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <label className="text-xs text-muted-foreground">Arquivar quadro</label>
+                <p className="text-xs text-muted-foreground">Isto oculta o quadro da lista principal. Você pode reativá-lo depois.</p>
+                <div className="flex gap-2 mt-2">
+                  <Button variant="destructive" onClick={async()=>{
+                    if (!confirm('Arquivar este quadro?')) return
+                    const { error } = await supabase.from('boards').update({ is_archived: true }).eq('id', boardId)
+                    if (error) return toast({ variant:'destructive', title:'Erro', description: error.message })
+                    toast({ title:'Quadro arquivado' })
+                    setBoardSettingsOpen(false)
+                    // Recarregar lista de quadros
+                    const { data } = await supabase.from('boards').select('*').order('created_at', { ascending: true })
+                    setBoards(data || [])
+                  }}>Arquivar Quadro</Button>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <label className="text-xs text-muted-foreground">Tags do quadro</label>
+                <p className="text-xs text-muted-foreground">Use cores para organizar. (Armazenado em boards.settings.labels)</p>
+                <BoardLabelsEditor
+                  board={boards.find(b=>b.id===boardId)!}
+                  onSave={async (labels)=>{
+                    const b = boards.find(b=>b.id===boardId)
+                    if (!b) return
+                    const settings = { ...(b.settings||{}), labels }
+                    const { error } = await supabase.from('boards').update({ settings }).eq('id', boardId)
+                    if (error) return toast({ variant:'destructive', title:'Erro', description: error.message })
+                    setBoards(prev=> prev.map(x=> x.id===boardId ? { ...x, settings } as Board : x))
+                    toast({ title:'Tags salvas' })
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div>Selecione um quadro.</div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={()=>setBoardSettingsOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       </Dialog>
 
       {/* Dialog Novo Quadro */}

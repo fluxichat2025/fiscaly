@@ -1,6 +1,6 @@
 # 🏢 Fiscalia WebApp
 
-Sistema completo de gestão fiscal com Kanban de tarefas, emissão de NFSe, relatórios e dashboard integrado.
+Sistema completo de gestão fiscal e financeira com Kanban de tarefas, emissão de NFe/NFSe, fluxo de caixa, relatórios, configurações avançadas e dashboard integrado.
 
 ## 🚀 Funcionalidades
 
@@ -12,12 +12,31 @@ Sistema completo de gestão fiscal com Kanban de tarefas, emissão de NFSe, rela
 - ✅ **Filtros avançados** (prioridade, responsável, tags, datas)
 - ✅ **Sincronização** entre Dashboard e página de Tarefas
 
-### 🧾 Sistema NFSe
+### 🧾 Sistema Fiscal Completo
+- ✅ **Emissão de NFe** - Notas Fiscais Eletrônicas
 - ✅ **Emissão de NFSe** via Focus NFe API
-- ✅ **Consulta simples** de notas emitidas
-- ✅ **Configuração por empresa** (códigos municipais, lista de serviços)
+- ✅ **Consulta de notas** emitidas com histórico completo
+- ✅ **Gestão de empresas** (códigos municipais, lista de serviços)
+- ✅ **Cancelamento/Inutilização** de notas
 - ✅ **Proxy server** para resolver CORS
 - ✅ **Fallback strategy** com Supabase Edge Functions
+
+### 💰 Sistema Financeiro
+- ✅ **Fluxo de Caixa** completo com entradas e saídas
+- ✅ **Contas Bancárias** com saldos e movimentações
+- ✅ **Recebimentos** e gestão de contas a receber
+- ✅ **Contas a Pagar** com controle de fornecedores
+- ✅ **Conciliação Bancária** automatizada
+- ✅ **Relatórios Financeiros** detalhados
+- ✅ **Categorização** automática de transações
+
+### ⚙️ Configurações Avançadas
+- ✅ **Perfil do Usuário** - dados pessoais, preferências, notificações
+- ✅ **Configurações da Empresa** - dados corporativos, configurações fiscais
+- ✅ **Gestão Financeira** - contas bancárias, categorias, centros de custo
+- ✅ **Gestão de Usuários** - controle de acesso e permissões
+- ✅ **Integrações** - Focus NFe, Open Banking, E-mail SMTP
+- ✅ **Sistema** - performance, logs, backup, manutenção
 
 ### 📊 Dashboard
 - ✅ **Widgets integrados** (NFSe, tarefas, relatórios)
@@ -121,6 +140,13 @@ fiscalia-webapp/
 - `tasks` - Tarefas
 - `companies` - Empresas
 - `nfse_emitidas` - NFSe emitidas
+- `finance_accounts` - Contas bancárias
+- `finance_transactions` - Transações financeiras
+- `app_settings` - Configurações do sistema
+- `user_preferences` - Preferências do usuário
+- `categories` - Categorias financeiras
+- `cost_centers` - Centros de custo
+- `audit_logs` - Logs de auditoria
 
 ### Realtime habilitado para:
 - `tasks` - Sincronização instantânea de tarefas
