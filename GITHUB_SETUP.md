@@ -6,7 +6,7 @@
 
 1. **Acesse**: https://github.com/new
 2. **Preencha os dados**:
-   - **Repository name**: `fiscalia-webapp`
+   - **Repository name**: `fiscaly`
    - **Description**: `Sistema completo de gestão fiscal e financeira com NFe/NFSe, fluxo de caixa, relatórios e configurações avançadas. Desenvolvido com React, TypeScript, Supabase e shadcn/ui.`
    - **Visibility**: Public ✅
    - **❌ NÃO marque**: "Add a README file" (já existe)
@@ -30,13 +30,13 @@ git push -u origin main
 - ✅ Git inicializado
 - ✅ Arquivos adicionados
 - ✅ Commit inicial realizado
-- ✅ Remote origin configurado para: https://github.com/fluxichat2025/fiscalia-webapp.git
+- ✅ Remote origin configurado para: https://github.com/fluxichat2025/fiscaly.git
 
 ### **3. Verificar Upload**
 
 Após criar o repositório no GitHub e fazer o push, verifique:
 
-1. **Acesse seu repositório**: https://github.com/fluxichat2025/fiscalia-webapp
+1. **Acesse seu repositório**: https://github.com/fluxichat2025/fiscaly
 2. **Verifique se estão presentes**:
    - ✅ `README.md` (documentação completa)
    - ✅ `package.json` (dependências do frontend)
@@ -50,7 +50,7 @@ Após criar o repositório no GitHub e fazer o push, verifique:
 ## 📁 Estrutura do Projeto
 
 ```
-fiscalia-webapp/
+fiscaly/
 ├── 📄 README.md                     # Documentação completa
 ├── 📄 package.json                  # Dependências frontend
 ├── 📄 .gitignore                    # Arquivos ignorados
@@ -153,7 +153,7 @@ Seu repositório estará completo com:
 - ✅ **Estrutura organizada**
 - ✅ **Pronto para produção**
 
-**URL do repositório**: https://github.com/fluxichat2025/fiscalia-webapp
+**URL do repositório**: https://github.com/fluxichat2025/fiscaly
 
 ## 📊 Estatísticas do Projeto
 

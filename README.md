@@ -71,8 +71,8 @@ Sistema completo de gestão fiscal e financeira com Kanban de tarefas, emissão 
 
 ### 1. Clone o repositório
 ```bash
-git clone https://github.com/fluxichat2025/fiscalia-webapp.git
-cd fiscalia-webapp
+git clone https://github.com/fluxichat2025/fiscaly.git
+cd fiscaly
 ```
 
 ### 2. Instale as dependências
