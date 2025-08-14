@@ -1,1 +1,0 @@
-﻿{"framework": "vite", "buildCommand": "npm run build", "outputDirectory": "dist", "installCommand": "npm install", "rewrites": [{"source": "/api/focusnfe/(.*)", "destination": "https://api.focusnfe.com.br/$1"}, {"source": "/api/focusnfe-homologacao/(.*)", "destination": "https://homologacao.focusnfe.com.br/$1"}]}
