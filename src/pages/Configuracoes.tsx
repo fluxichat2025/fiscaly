@@ -40,7 +40,9 @@ import {
   Upload,
   CheckCircle,
   AlertCircle,
-  Zap
+  Zap,
+  MapPin,
+  Phone
 } from 'lucide-react'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
@@ -66,6 +68,83 @@ type UserPreference = {
   notifications: any
   created_at: string
   updated_at: string
+}
+
+type CompanyInfo = {
+  id: string
+  user_id: string
+  razao_social?: string | null
+  nome_fantasia?: string | null
+  cnpj?: string | null
+  logo_url?: string | null
+  cep?: string | null
+  endereco?: string | null
+  numero?: string | null
+  complemento?: string | null
+  bairro?: string | null
+  cidade?: string | null
+  estado?: string | null
+  telefone?: string | null
+  email_corporativo?: string | null
+  website?: string | null
+  inscricao_estadual?: string | null
+  inscricao_municipal?: string | null
+  regime_tributario?: string | null
+  banco_principal?: string | null
+  agencia?: string | null
+  conta?: string | null
+  atividade_principal?: string | null
+  capital_social?: number | null
+  data_abertura?: string | null
+  created_at: string
+  updated_at: string
+}
+
+type UserRole = 'administrador' | 'usuario' | 'contador' | 'visualizador'
+
+type CompanyUser = {
+  id: string
+  user_id: string
+  company_id: string
+  role: UserRole
+  is_active: boolean
+  invited_by?: string | null
+  invited_at: string
+  joined_at?: string | null
+  created_at: string
+  updated_at: string
+  profiles?: {
+    id: string
+    first_name?: string | null
+    last_name?: string | null
+    email?: string | null
+    avatar_url?: string | null
+    phone?: string | null
+  }
+}
+
+type UserInvitation = {
+  id: string
+  email: string
+  company_id: string
+  role: UserRole
+  invited_by: string
+  invitation_token: string
+  expires_at: string
+  accepted_at?: string | null
+  created_at: string
+}
+
+type UserAuditLog = {
+  id: string
+  company_id: string
+  performed_by?: string | null
+  target_user_id?: string | null
+  action: string
+  details: any
+  ip_address?: string | null
+  user_agent?: string | null
+  created_at: string
 }
 
 type Category = {
@@ -116,6 +195,11 @@ const Configuracoes = () => {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [accounts, setAccounts] = useState<FinanceAccount[]>([])
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null)
+  const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([])
+  const [userInvitations, setUserInvitations] = useState<UserInvitation[]>([])
+  const [userAuditLogs, setUserAuditLogs] = useState<UserAuditLog[]>([])
+  const [isUserAdmin, setIsUserAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Estados de modais
@@ -123,6 +207,9 @@ const Configuracoes = () => {
   const [isNewCategoryOpen, setIsNewCategoryOpen] = useState(false)
   const [isNewUserOpen, setIsNewUserOpen] = useState(false)
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false)
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false)
+  const [isEditUserOpen, setIsEditUserOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<CompanyUser | null>(null)
 
   // Estado de busca global
   const [globalSearch, setGlobalSearch] = useState('')
@@ -135,6 +222,13 @@ const Configuracoes = () => {
     account: '',
     type: 'checking',
     opening_balance: 0
+  })
+
+  const [userForm, setUserForm] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    role: 'usuario' as UserRole
   })
 
   const [categoryForm, setCategoryForm] = useState({
@@ -206,6 +300,75 @@ const Configuracoes = () => {
 
         if (accountsError) throw accountsError
         setAccounts(accountsData as FinanceAccount[])
+
+        // Carregar dados da empresa
+        const { data: companyData, error: companyError } = await supabase
+          .from('company_info')
+          .select('*')
+          .eq('user_id', profile?.id)
+          .single()
+
+        if (companyError && companyError.code !== 'PGRST116') {
+          throw companyError
+        }
+        setCompanyInfo(companyData as CompanyInfo)
+
+        // Verificar se o usuário é administrador
+        if (companyData?.id) {
+          const { data: adminCheck } = await supabase
+            .from('user_companies')
+            .select('role')
+            .eq('user_id', profile?.id)
+            .eq('company_id', companyData.id)
+            .eq('is_active', true)
+            .single()
+
+          setIsUserAdmin(adminCheck?.role === 'administrador')
+
+          // Carregar usuários da empresa (apenas se for admin)
+          if (adminCheck?.role === 'administrador') {
+            const { data: usersData, error: usersError } = await supabase
+              .from('user_companies')
+              .select(`
+                *,
+                profiles:user_id (
+                  id,
+                  first_name,
+                  last_name,
+                  email,
+                  avatar_url,
+                  phone
+                )
+              `)
+              .eq('company_id', companyData.id)
+              .order('created_at', { ascending: false })
+
+            if (usersError) throw usersError
+            setCompanyUsers(usersData as CompanyUser[])
+
+            // Carregar convites pendentes
+            const { data: invitationsData, error: invitationsError } = await supabase
+              .from('user_invitations')
+              .select('*')
+              .eq('company_id', companyData.id)
+              .is('accepted_at', null)
+              .order('created_at', { ascending: false })
+
+            if (invitationsError) throw invitationsError
+            setUserInvitations(invitationsData as UserInvitation[])
+
+            // Carregar logs de auditoria (últimos 50)
+            const { data: logsData, error: logsError } = await supabase
+              .from('user_audit_logs')
+              .select('*')
+              .eq('company_id', companyData.id)
+              .order('created_at', { ascending: false })
+              .limit(50)
+
+            if (logsError) throw logsError
+            setUserAuditLogs(logsData as UserAuditLog[])
+          }
+        }
 
       } catch (error: any) {
         toast({
@@ -291,6 +454,332 @@ const Configuracoes = () => {
     return setting ? setting.value : null
   }
 
+  // Função para adicionar usuário
+  const addUser = async () => {
+    if (!companyInfo?.id || !isUserAdmin) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Apenas administradores podem adicionar usuários',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    if (!userForm.email || !userForm.first_name) {
+      toast({
+        title: 'Campos obrigatórios',
+        description: 'Nome e email são obrigatórios',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      // Verificar se o email já está em uso na empresa
+      const { data: existingUser } = await supabase
+        .from('user_invitations')
+        .select('id')
+        .eq('email', userForm.email)
+        .eq('company_id', companyInfo.id)
+        .single()
+
+      if (existingUser) {
+        toast({
+          title: 'Email já convidado',
+          description: 'Este email já foi convidado para a empresa',
+          variant: 'destructive'
+        })
+        return
+      }
+
+      // Criar convite
+      const { data: invitation, error: inviteError } = await supabase
+        .from('user_invitations')
+        .insert({
+          email: userForm.email,
+          company_id: companyInfo.id,
+          role: userForm.role,
+          invited_by: user?.id
+        })
+        .select()
+        .single()
+
+      if (inviteError) throw inviteError
+
+      // Registrar log de auditoria
+      await supabase.rpc('log_user_action', {
+        p_company_id: companyInfo.id,
+        p_performed_by: user?.id,
+        p_target_user_id: null,
+        p_action: 'convidou usuário',
+        p_details: {
+          email: userForm.email,
+          role: userForm.role,
+          name: `${userForm.first_name} ${userForm.last_name}`.trim()
+        }
+      })
+
+      // Atualizar lista de convites
+      setUserInvitations(prev => [invitation, ...prev])
+
+      // Limpar formulário e fechar modal
+      setUserForm({
+        first_name: '',
+        last_name: '',
+        email: '',
+        role: 'usuario'
+      })
+      setIsAddUserOpen(false)
+
+      toast({
+        title: 'Usuário convidado!',
+        description: `Convite enviado para ${userForm.email}`
+      })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao convidar usuário',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para editar usuário
+  const updateUser = async () => {
+    if (!editingUser || !companyInfo?.id || !isUserAdmin) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Apenas administradores podem editar usuários',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      // Atualizar dados na tabela user_companies
+      const { error: updateError } = await supabase
+        .from('user_companies')
+        .update({
+          role: userForm.role,
+          is_active: editingUser.is_active
+        })
+        .eq('id', editingUser.id)
+
+      if (updateError) throw updateError
+
+      // Atualizar dados do perfil se fornecidos
+      if (userForm.first_name || userForm.last_name) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            first_name: userForm.first_name || editingUser.profiles?.first_name,
+            last_name: userForm.last_name || editingUser.profiles?.last_name
+          })
+          .eq('id', editingUser.user_id)
+
+        if (profileError) throw profileError
+      }
+
+      // Registrar log de auditoria
+      await supabase.rpc('log_user_action', {
+        p_company_id: companyInfo.id,
+        p_performed_by: user?.id,
+        p_target_user_id: editingUser.user_id,
+        p_action: 'editou usuário',
+        p_details: {
+          role: userForm.role,
+          name: `${userForm.first_name} ${userForm.last_name}`.trim()
+        }
+      })
+
+      // Atualizar lista local
+      setCompanyUsers(prev => prev.map(u =>
+        u.id === editingUser.id
+          ? {
+              ...u,
+              role: userForm.role,
+              profiles: {
+                ...u.profiles!,
+                first_name: userForm.first_name || u.profiles?.first_name,
+                last_name: userForm.last_name || u.profiles?.last_name
+              }
+            }
+          : u
+      ))
+
+      // Limpar formulário e fechar modal
+      setUserForm({
+        first_name: '',
+        last_name: '',
+        email: '',
+        role: 'usuario'
+      })
+      setEditingUser(null)
+      setIsEditUserOpen(false)
+
+      toast({
+        title: 'Usuário atualizado!',
+        description: 'Dados do usuário foram atualizados com sucesso'
+      })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao atualizar usuário',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para ativar/desativar usuário
+  const toggleUserStatus = async (companyUser: CompanyUser) => {
+    if (!companyInfo?.id || !isUserAdmin) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Apenas administradores podem alterar status de usuários',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const newStatus = !companyUser.is_active
+
+      const { error } = await supabase
+        .from('user_companies')
+        .update({ is_active: newStatus })
+        .eq('id', companyUser.id)
+
+      if (error) throw error
+
+      // Registrar log de auditoria
+      await supabase.rpc('log_user_action', {
+        p_company_id: companyInfo.id,
+        p_performed_by: user?.id,
+        p_target_user_id: companyUser.user_id,
+        p_action: newStatus ? 'ativou usuário' : 'desativou usuário',
+        p_details: {
+          email: companyUser.profiles?.email,
+          name: `${companyUser.profiles?.first_name || ''} ${companyUser.profiles?.last_name || ''}`.trim()
+        }
+      })
+
+      // Atualizar lista local
+      setCompanyUsers(prev => prev.map(u =>
+        u.id === companyUser.id ? { ...u, is_active: newStatus } : u
+      ))
+
+      toast({
+        title: `Usuário ${newStatus ? 'ativado' : 'desativado'}!`,
+        description: `${companyUser.profiles?.first_name} foi ${newStatus ? 'ativado' : 'desativado'} com sucesso`
+      })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao alterar status',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para salvar dados da empresa
+  const saveCompanyInfo = async (field: string, value: any) => {
+    try {
+      if (companyInfo) {
+        const { error } = await supabase
+          .from('company_info')
+          .update({ [field]: value })
+          .eq('user_id', profile?.id)
+
+        if (error) throw error
+
+        setCompanyInfo(prev => prev ? { ...prev, [field]: value } : null)
+      } else {
+        const { data, error } = await supabase
+          .from('company_info')
+          .insert([{
+            user_id: profile?.id,
+            [field]: value
+          }])
+          .select()
+          .single()
+
+        if (error) throw error
+        setCompanyInfo(data as CompanyInfo)
+      }
+
+      toast({ title: 'Dados da empresa salvos com sucesso' })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao salvar dados da empresa',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para buscar CEP
+  const fetchCEP = async (cep: string) => {
+    try {
+      const cleanCEP = cep.replace(/\D/g, '')
+      if (cleanCEP.length !== 8) return
+
+      const response = await fetch(`https://viacep.com.br/ws/${cleanCEP}/json/`)
+      const data = await response.json()
+
+      if (data.erro) {
+        toast({
+          title: 'CEP não encontrado',
+          variant: 'destructive'
+        })
+        return
+      }
+
+      // Atualizar múltiplos campos
+      const updates = {
+        endereco: data.logradouro,
+        bairro: data.bairro,
+        cidade: data.localidade,
+        estado: data.uf
+      }
+
+      if (companyInfo) {
+        const { error } = await supabase
+          .from('company_info')
+          .update(updates)
+          .eq('user_id', profile?.id)
+
+        if (error) throw error
+        setCompanyInfo(prev => prev ? { ...prev, ...updates } : null)
+      } else {
+        const { data: newData, error } = await supabase
+          .from('company_info')
+          .insert([{
+            user_id: profile?.id,
+            cep: cleanCEP,
+            ...updates
+          }])
+          .select()
+          .single()
+
+        if (error) throw error
+        setCompanyInfo(newData as CompanyInfo)
+      }
+
+      toast({ title: 'Endereço preenchido automaticamente' })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao buscar CEP',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
   return (
     <Layout>
       <div className="p-6 space-y-6">
@@ -352,11 +841,68 @@ const Configuracoes = () => {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center">
-                      <User className="h-8 w-8 text-muted-foreground" />
+                    <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center overflow-hidden">
+                      {profile?.avatar_url ? (
+                        <img
+                          src={profile.avatar_url}
+                          alt="Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="h-8 w-8 text-muted-foreground" />
+                      )}
                     </div>
                     <div className="flex-1">
-                      <Button variant="outline" size="sm">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        id="avatar-upload"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file || !profile?.id) return
+
+                          try {
+                            // Upload para Supabase Storage
+                            const fileExt = file.name.split('.').pop()
+                            const fileName = `${profile.id}.${fileExt}`
+
+                            const { error: uploadError } = await supabase.storage
+                              .from('avatars')
+                              .upload(fileName, file, { upsert: true })
+
+                            if (uploadError) throw uploadError
+
+                            // Obter URL pública
+                            const { data: { publicUrl } } = supabase.storage
+                              .from('avatars')
+                              .getPublicUrl(fileName)
+
+                            // Atualizar perfil
+                            const { error: updateError } = await supabase
+                              .from('profiles')
+                              .update({ avatar_url: publicUrl })
+                              .eq('id', profile.id)
+
+                            if (updateError) throw updateError
+
+                            toast({ title: 'Foto atualizada com sucesso!' })
+                            window.location.reload() // Recarregar para mostrar nova foto
+
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao atualizar foto',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('avatar-upload')?.click()}
+                      >
                         <Upload className="h-4 w-4 mr-2" />
                         Alterar Foto
                       </Button>
@@ -364,136 +910,92 @@ const Configuracoes = () => {
                   </div>
                   <div className="grid grid-cols-1 gap-3">
                     <div>
-                      <label className="text-sm font-medium">Nome</label>
-                      <Input value={profile?.first_name || ''} readOnly />
+                      <label className="text-sm font-medium">Nome Completo</label>
+                      <Input
+                        value={profile?.first_name || ''}
+                        onChange={async (e) => {
+                          const value = e.target.value
+                          try {
+                            const { error } = await supabase
+                              .from('profiles')
+                              .update({ first_name: value })
+                              .eq('id', profile?.id)
+
+                            if (error) throw error
+                            toast({ title: 'Nome atualizado com sucesso!' })
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao atualizar nome',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }}
+                        placeholder="Digite seu nome completo"
+                      />
                     </div>
                     <div>
                       <label className="text-sm font-medium">Email</label>
-                      <Input value={profile?.email || ''} readOnly />
+                      <Input value={profile?.email || ''} readOnly className="bg-muted" />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Para alterar o email, entre em contato com o suporte
+                      </p>
                     </div>
                     <div>
                       <label className="text-sm font-medium">Telefone</label>
-                      <Input placeholder="(11) 99999-9999" />
+                      <Input
+                        value={profile?.phone || ''}
+                        onChange={async (e) => {
+                          const value = e.target.value
+                          try {
+                            const { error } = await supabase
+                              .from('profiles')
+                              .update({ phone: value })
+                              .eq('id', profile?.id)
+
+                            if (error) throw error
+                            toast({ title: 'Telefone atualizado com sucesso!' })
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao atualizar telefone',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }}
+                        placeholder="(11) 99999-9999"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Cargo/Função</label>
+                      <Input
+                        value={profile?.role || ''}
+                        onChange={async (e) => {
+                          const value = e.target.value
+                          try {
+                            const { error } = await supabase
+                              .from('profiles')
+                              .update({ role: value })
+                              .eq('id', profile?.id)
+
+                            if (error) throw error
+                            toast({ title: 'Cargo atualizado com sucesso!' })
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao atualizar cargo',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }}
+                        placeholder="Ex: Contador, Gerente Financeiro"
+                      />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Preferências */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Palette className="h-5 w-5" />
-                    Preferências
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium">Tema</label>
-                    <Select
-                      value={preferences?.theme || 'light'}
-                      onValueChange={value => savePreference('theme', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="light">Claro</SelectItem>
-                        <SelectItem value="dark">Escuro</SelectItem>
-                        <SelectItem value="system">Sistema</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Idioma</label>
-                    <Select
-                      value={preferences?.language || 'pt-BR'}
-                      onValueChange={value => savePreference('language', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pt-BR">Português (Brasil)</SelectItem>
-                        <SelectItem value="en-US">English (US)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Fuso Horário</label>
-                    <Select
-                      value={preferences?.timezone || 'America/Sao_Paulo'}
-                      onValueChange={value => savePreference('timezone', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="America/Sao_Paulo">São Paulo (GMT-3)</SelectItem>
-                        <SelectItem value="America/New_York">New York (GMT-5)</SelectItem>
-                        <SelectItem value="Europe/London">London (GMT+0)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
 
-              {/* Notificações */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Bell className="h-5 w-5" />
-                    Notificações
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Notificações por Email</p>
-                      <p className="text-xs text-muted-foreground">Receber alertas por email</p>
-                    </div>
-                    <Switch
-                      checked={preferences?.notifications?.email || false}
-                      onCheckedChange={checked => {
-                        const newNotifications = { ...preferences?.notifications, email: checked }
-                        savePreference('notifications', newNotifications)
-                      }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Notificações Push</p>
-                      <p className="text-xs text-muted-foreground">Receber notificações no navegador</p>
-                    </div>
-                    <Switch
-                      checked={preferences?.notifications?.push || false}
-                      onCheckedChange={checked => {
-                        const newNotifications = { ...preferences?.notifications, push: checked }
-                        savePreference('notifications', newNotifications)
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Frequência</label>
-                    <Select
-                      value={preferences?.notifications?.frequency || 'daily'}
-                      onValueChange={value => {
-                        const newNotifications = { ...preferences?.notifications, frequency: value }
-                        savePreference('notifications', newNotifications)
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="immediate">Imediata</SelectItem>
-                        <SelectItem value="daily">Diária</SelectItem>
-                        <SelectItem value="weekly">Semanal</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
 
               {/* Segurança */}
               <Card>
@@ -512,19 +1014,117 @@ const Configuracoes = () => {
                     <Key className="h-4 w-4 mr-2" />
                     Alterar Senha
                   </Button>
-                  <Button variant="outline" className="w-full justify-start">
-                    <Shield className="h-4 w-4 mr-2" />
-                    Ativar 2FA
-                  </Button>
+
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-sm font-medium">Autenticação de Dois Fatores (2FA)</p>
+                        <p className="text-xs text-muted-foreground">
+                          Adicione uma camada extra de segurança à sua conta
+                        </p>
+                      </div>
+                      <Switch
+                        checked={profile?.two_factor_enabled || false}
+                        onCheckedChange={async (checked) => {
+                          try {
+                            const { error } = await supabase
+                              .from('profiles')
+                              .update({ two_factor_enabled: checked })
+                              .eq('id', profile?.id)
+
+                            if (error) throw error
+
+                            toast({
+                              title: checked ? '2FA ativado!' : '2FA desativado!',
+                              description: checked
+                                ? 'Sua conta agora está mais segura'
+                                : 'Recomendamos manter o 2FA ativado'
+                            })
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao alterar 2FA',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }}
+                      />
+                    </div>
+                    {profile?.two_factor_enabled && (
+                      <div className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircle className="h-3 w-3" />
+                        2FA está ativo e protegendo sua conta
+                      </div>
+                    )}
+                  </div>
+
                   <div>
-                    <p className="text-sm font-medium mb-2">Sessões Ativas</p>
+                    <p className="text-sm font-medium mb-3">Sessões Ativas</p>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between p-2 bg-muted rounded">
-                        <div>
-                          <p className="text-xs font-medium">Sessão Atual</p>
-                          <p className="text-xs text-muted-foreground">Chrome - São Paulo</p>
+                      <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <Globe className="h-4 w-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">Sessão Atual</p>
+                            <p className="text-xs text-muted-foreground">
+                              {navigator.userAgent.includes('Chrome') ? 'Chrome' :
+                               navigator.userAgent.includes('Firefox') ? 'Firefox' :
+                               navigator.userAgent.includes('Safari') ? 'Safari' : 'Navegador'} -
+                              {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Último acesso: {new Date().toLocaleString('pt-BR')}
+                            </p>
+                          </div>
                         </div>
-                        <Badge variant="secondary">Ativa</Badge>
+                        <Badge variant="default" className="bg-green-100 text-green-800">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                          Ativa
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-3"
+                      onClick={async () => {
+                        if (confirm('Tem certeza que deseja encerrar todas as outras sessões?')) {
+                          try {
+                            await supabase.auth.signOut({ scope: 'others' })
+                            toast({ title: 'Outras sessões encerradas com sucesso!' })
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao encerrar sessões',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }
+                      }}
+                    >
+                      Encerrar Outras Sessões
+                    </Button>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <p className="text-sm font-medium mb-2">Informações de Segurança</p>
+                    <div className="space-y-2 text-xs text-muted-foreground">
+                      <div className="flex justify-between">
+                        <span>Conta criada em:</span>
+                        <span>{profile?.created_at ? new Date(profile.created_at).toLocaleDateString('pt-BR') : '—'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Último login:</span>
+                        <span>{profile?.last_sign_in_at ? new Date(profile.last_sign_in_at).toLocaleString('pt-BR') : '—'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Email verificado:</span>
+                        <span className={profile?.email_verified ? 'text-green-600' : 'text-orange-600'}>
+                          {profile?.email_verified ? '✓ Verificado' : '⚠ Não verificado'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -536,21 +1136,68 @@ const Configuracoes = () => {
           {/* Tab Empresa */}
           <TabsContent value="empresa" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Dados Corporativos */}
+              {/* Dados Básicos */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Building2 className="h-5 w-5" />
-                    Dados Corporativos
+                    Dados Básicos da Empresa
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-muted rounded flex items-center justify-center">
-                      <Building2 className="h-8 w-8 text-muted-foreground" />
+                    <div className="w-16 h-16 bg-muted rounded flex items-center justify-center overflow-hidden">
+                      {companyInfo?.logo_url ? (
+                        <img
+                          src={companyInfo.logo_url}
+                          alt="Logo da empresa"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <Building2 className="h-8 w-8 text-muted-foreground" />
+                      )}
                     </div>
                     <div className="flex-1">
-                      <Button variant="outline" size="sm">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        id="logo-upload"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file || !profile?.id) return
+
+                          try {
+                            const fileExt = file.name.split('.').pop()
+                            const fileName = `${profile.id}/logo.${fileExt}`
+
+                            const { error: uploadError } = await supabase.storage
+                              .from('company-logos')
+                              .upload(fileName, file, { upsert: true })
+
+                            if (uploadError) throw uploadError
+
+                            const { data: { publicUrl } } = supabase.storage
+                              .from('company-logos')
+                              .getPublicUrl(fileName)
+
+                            await saveCompanyInfo('logo_url', publicUrl)
+                            toast({ title: 'Logo atualizado com sucesso!' })
+
+                          } catch (error: any) {
+                            toast({
+                              title: 'Erro ao atualizar logo',
+                              description: error.message,
+                              variant: 'destructive'
+                            })
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('logo-upload')?.click()}
+                      >
                         <Upload className="h-4 w-4 mr-2" />
                         Upload Logo
                       </Button>
@@ -558,40 +1205,62 @@ const Configuracoes = () => {
                   </div>
                   <div className="grid grid-cols-1 gap-3">
                     <div>
-                      <label className="text-sm font-medium">Razão Social</label>
+                      <label className="text-sm font-medium">Razão Social *</label>
                       <Input
-                        value={getSetting('company_name') || ''}
-                        onChange={e => saveSetting('company_name', e.target.value)}
+                        value={companyInfo?.razao_social || ''}
+                        onChange={(e) => saveCompanyInfo('razao_social', e.target.value)}
+                        placeholder="Nome completo da empresa"
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium">CNPJ</label>
+                      <label className="text-sm font-medium">Nome Fantasia</label>
                       <Input
-                        value={getSetting('company_cnpj') || ''}
-                        onChange={e => saveSetting('company_cnpj', e.target.value)}
+                        value={companyInfo?.nome_fantasia || ''}
+                        onChange={(e) => saveCompanyInfo('nome_fantasia', e.target.value)}
+                        placeholder="Nome comercial da empresa"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">CNPJ *</label>
+                      <Input
+                        value={companyInfo?.cnpj || ''}
+                        onChange={(e) => {
+                          let value = e.target.value.replace(/\D/g, '')
+                          value = value.replace(/^(\d{2})(\d)/, '$1.$2')
+                          value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+                          value = value.replace(/\.(\d{3})(\d)/, '.$1/$2')
+                          value = value.replace(/(\d{4})(\d)/, '$1-$2')
+                          saveCompanyInfo('cnpj', value)
+                        }}
                         placeholder="00.000.000/0000-00"
+                        maxLength={18}
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium">Endereço</label>
+                      <label className="text-sm font-medium">Atividade Principal</label>
                       <Input
-                        value={getSetting('company_address')?.street || ''}
-                        placeholder="Rua, número, bairro"
+                        value={companyInfo?.atividade_principal || ''}
+                        onChange={(e) => saveCompanyInfo('atividade_principal', e.target.value)}
+                        placeholder="Ex: Serviços de contabilidade"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-sm font-medium">Cidade</label>
+                        <label className="text-sm font-medium">Capital Social</label>
                         <Input
-                          value={getSetting('company_address')?.city || ''}
-                          placeholder="Cidade"
+                          type="number"
+                          step="0.01"
+                          value={companyInfo?.capital_social || ''}
+                          onChange={(e) => saveCompanyInfo('capital_social', parseFloat(e.target.value) || 0)}
+                          placeholder="0,00"
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium">CEP</label>
+                        <label className="text-sm font-medium">Data de Abertura</label>
                         <Input
-                          value={getSetting('company_address')?.zip || ''}
-                          placeholder="00000-000"
+                          type="date"
+                          value={companyInfo?.data_abertura || ''}
+                          onChange={(e) => saveCompanyInfo('data_abertura', e.target.value)}
                         />
                       </div>
                     </div>
@@ -599,20 +1268,149 @@ const Configuracoes = () => {
                 </CardContent>
               </Card>
 
-              {/* Configurações Fiscais */}
+              {/* Endereço */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5" />
+                    Endereço da Empresa
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="text-sm font-medium">CEP *</label>
+                      <Input
+                        value={companyInfo?.cep || ''}
+                        onChange={(e) => {
+                          let value = e.target.value.replace(/\D/g, '')
+                          value = value.replace(/^(\d{5})(\d)/, '$1-$2')
+                          saveCompanyInfo('cep', value)
+                        }}
+                        onBlur={(e) => {
+                          const cep = e.target.value.replace(/\D/g, '')
+                          if (cep.length === 8) {
+                            fetchCEP(cep)
+                          }
+                        }}
+                        placeholder="00000-000"
+                        maxLength={9}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Estado</label>
+                      <Input
+                        value={companyInfo?.estado || ''}
+                        onChange={(e) => saveCompanyInfo('estado', e.target.value.toUpperCase())}
+                        placeholder="SP"
+                        maxLength={2}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Endereço *</label>
+                    <Input
+                      value={companyInfo?.endereco || ''}
+                      onChange={(e) => saveCompanyInfo('endereco', e.target.value)}
+                      placeholder="Rua, Avenida, etc."
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-sm font-medium">Número</label>
+                      <Input
+                        value={companyInfo?.numero || ''}
+                        onChange={(e) => saveCompanyInfo('numero', e.target.value)}
+                        placeholder="123"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-sm font-medium">Complemento</label>
+                      <Input
+                        value={companyInfo?.complemento || ''}
+                        onChange={(e) => saveCompanyInfo('complemento', e.target.value)}
+                        placeholder="Sala, Andar, etc."
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-sm font-medium">Bairro</label>
+                      <Input
+                        value={companyInfo?.bairro || ''}
+                        onChange={(e) => saveCompanyInfo('bairro', e.target.value)}
+                        placeholder="Centro"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Cidade</label>
+                      <Input
+                        value={companyInfo?.cidade || ''}
+                        onChange={(e) => saveCompanyInfo('cidade', e.target.value)}
+                        placeholder="São Paulo"
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Contatos */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Phone className="h-5 w-5" />
+                    Contatos da Empresa
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Telefone Principal</label>
+                    <Input
+                      value={companyInfo?.telefone || ''}
+                      onChange={(e) => {
+                        let value = e.target.value.replace(/\D/g, '')
+                        value = value.replace(/^(\d{2})(\d)/, '($1) $2')
+                        value = value.replace(/(\d{5})(\d)/, '$1-$2')
+                        saveCompanyInfo('telefone', value)
+                      }}
+                      placeholder="(11) 99999-9999"
+                      maxLength={15}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Email Corporativo</label>
+                    <Input
+                      type="email"
+                      value={companyInfo?.email_corporativo || ''}
+                      onChange={(e) => saveCompanyInfo('email_corporativo', e.target.value)}
+                      placeholder="contato@empresa.com.br"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Website</label>
+                    <Input
+                      value={companyInfo?.website || ''}
+                      onChange={(e) => saveCompanyInfo('website', e.target.value)}
+                      placeholder="https://www.empresa.com.br"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Dados Fiscais */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <FileText className="h-5 w-5" />
-                    Configurações Fiscais
+                    Dados Fiscais
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
                     <label className="text-sm font-medium">Regime Tributário</label>
                     <Select
-                      value={getSetting('tax_regime') || 'simples_nacional'}
-                      onValueChange={value => saveSetting('tax_regime', value)}
+                      value={companyInfo?.regime_tributario || 'simples_nacional'}
+                      onValueChange={(value) => saveCompanyInfo('regime_tributario', value)}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -627,99 +1425,57 @@ const Configuracoes = () => {
                   </div>
                   <div>
                     <label className="text-sm font-medium">Inscrição Estadual</label>
-                    <Input placeholder="000.000.000.000" />
+                    <Input
+                      value={companyInfo?.inscricao_estadual || ''}
+                      onChange={(e) => saveCompanyInfo('inscricao_estadual', e.target.value)}
+                      placeholder="000.000.000.000"
+                    />
                   </div>
                   <div>
                     <label className="text-sm font-medium">Inscrição Municipal</label>
-                    <Input placeholder="00000000-0" />
+                    <Input
+                      value={companyInfo?.inscricao_municipal || ''}
+                      onChange={(e) => saveCompanyInfo('inscricao_municipal', e.target.value)}
+                      placeholder="00000000-0"
+                    />
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Localização */}
+              {/* Dados Bancários */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Globe className="h-5 w-5" />
-                    Localização
+                    <CreditCard className="h-5 w-5" />
+                    Dados Bancários
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <label className="text-sm font-medium">Formato de Moeda</label>
-                    <Select
-                      value={getSetting('currency_format') || 'BRL'}
-                      onValueChange={value => saveSetting('currency_format', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="BRL">Real Brasileiro (R$)</SelectItem>
-                        <SelectItem value="USD">Dólar Americano ($)</SelectItem>
-                        <SelectItem value="EUR">Euro (€)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <label className="text-sm font-medium">Banco Principal</label>
+                    <Input
+                      value={companyInfo?.banco_principal || ''}
+                      onChange={(e) => saveCompanyInfo('banco_principal', e.target.value)}
+                      placeholder="Ex: Banco do Brasil, Itaú, Bradesco"
+                    />
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">Separador Decimal</label>
-                    <Select defaultValue="comma">
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="comma">Vírgula (,)</SelectItem>
-                        <SelectItem value="dot">Ponto (.)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Timezone da Empresa</label>
-                    <Select defaultValue="America/Sao_Paulo">
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="America/Sao_Paulo">São Paulo (GMT-3)</SelectItem>
-                        <SelectItem value="America/New_York">New York (GMT-5)</SelectItem>
-                        <SelectItem value="Europe/London">London (GMT+0)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Backup */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Database className="h-5 w-5" />
-                    Backup
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <p className="text-sm font-medium">Backup Automático</p>
-                      <p className="text-xs text-muted-foreground">Realizar backup automaticamente</p>
+                      <label className="text-sm font-medium">Agência</label>
+                      <Input
+                        value={companyInfo?.agencia || ''}
+                        onChange={(e) => saveCompanyInfo('agencia', e.target.value)}
+                        placeholder="0000"
+                      />
                     </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Frequência</label>
-                    <Select
-                      value={getSetting('backup_frequency') || 'daily'}
-                      onValueChange={value => saveSetting('backup_frequency', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="daily">Diário</SelectItem>
-                        <SelectItem value="weekly">Semanal</SelectItem>
-                        <SelectItem value="monthly">Mensal</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div>
+                      <label className="text-sm font-medium">Conta</label>
+                      <Input
+                        value={companyInfo?.conta || ''}
+                        onChange={(e) => saveCompanyInfo('conta', e.target.value)}
+                        placeholder="00000-0"
+                      />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -956,134 +1712,287 @@ const Configuracoes = () => {
 
           {/* Tab Usuários */}
           <TabsContent value="usuarios" className="space-y-6">
-            {/* Cards de Resumo */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {!isUserAdmin ? (
               <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-sm text-muted-foreground">Total de Usuários</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-semibold">
-                  {loading ? <Skeleton className="h-8 w-16" /> : '1'}
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <Shield className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">Acesso Restrito</h3>
+                  <p className="text-muted-foreground text-center">
+                    Apenas administradores podem gerenciar usuários da empresa.
+                  </p>
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-sm text-muted-foreground">Usuários Ativos</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-semibold text-green-600">
-                  {loading ? <Skeleton className="h-8 w-16" /> : '1'}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-sm text-muted-foreground">Administradores</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-semibold text-blue-600">
-                  {loading ? <Skeleton className="h-8 w-16" /> : '1'}
-                </CardContent>
-              </Card>
-            </div>
+            ) : (
+              <>
+                {/* Cards de Resumo */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-sm text-muted-foreground">Total de Usuários</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-2xl font-semibold">
+                      {loading ? <Skeleton className="h-8 w-16" /> : companyUsers.length}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-sm text-muted-foreground">Usuários Ativos</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-2xl font-semibold text-green-600">
+                      {loading ? <Skeleton className="h-8 w-16" /> : companyUsers.filter(u => u.is_active).length}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-sm text-muted-foreground">Administradores</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-2xl font-semibold text-blue-600">
+                      {loading ? <Skeleton className="h-8 w-16" /> : companyUsers.filter(u => u.role === 'administrador').length}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-sm text-muted-foreground">Convites Pendentes</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-2xl font-semibold text-orange-600">
+                      {loading ? <Skeleton className="h-8 w-16" /> : userInvitations.length}
+                    </CardContent>
+                  </Card>
+                </div>
 
-            {/* Tabela de Usuários */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Usuários do Sistema
-                </CardTitle>
-                <Button onClick={() => setIsNewUserOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Novo Usuário
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nome</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Perfil</TableHead>
-                      <TableHead>Último Acesso</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell className="font-medium">{profile?.first_name || 'Usuário'}</TableCell>
-                      <TableCell>{profile?.email}</TableCell>
-                      <TableCell>
-                        <Badge>Admin</Badge>
-                      </TableCell>
-                      <TableCell>Agora</TableCell>
-                      <TableCell>
-                        <Badge variant="default">Ativo</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button size="sm" variant="outline">
-                            <Eye className="h-3 w-3" />
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                {/* Tabela de Usuários */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Usuários da Empresa
+                    </CardTitle>
+                    <Button onClick={() => setIsAddUserOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Convidar Usuário
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Role</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Ingressou em</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {loading ? (
+                          Array.from({ length: 3 }).map((_, i) => (
+                            <TableRow key={i}>
+                              <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                            </TableRow>
+                          ))
+                        ) : companyUsers.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                              Nenhum usuário encontrado
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          companyUsers.map(companyUser => (
+                            <TableRow key={companyUser.id}>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs">
+                                    {companyUser.profiles?.first_name?.[0] || companyUser.profiles?.email?.[0] || '?'}
+                                  </div>
+                                  <div>
+                                    <div className="font-medium">
+                                      {companyUser.profiles?.first_name || 'Nome não informado'}
+                                      {companyUser.profiles?.last_name && ` ${companyUser.profiles.last_name}`}
+                                    </div>
+                                    {companyUser.profiles?.phone && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {companyUser.profiles.phone}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>{companyUser.profiles?.email}</TableCell>
+                              <TableCell>
+                                <Badge variant={
+                                  companyUser.role === 'administrador' ? 'default' :
+                                  companyUser.role === 'contador' ? 'secondary' :
+                                  companyUser.role === 'usuario' ? 'outline' : 'destructive'
+                                }>
+                                  {companyUser.role === 'administrador' ? 'Admin' :
+                                   companyUser.role === 'contador' ? 'Contador' :
+                                   companyUser.role === 'usuario' ? 'Usuário' : 'Visualizador'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={companyUser.is_active ? 'default' : 'secondary'}>
+                                  {companyUser.is_active ? 'Ativo' : 'Inativo'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {companyUser.joined_at
+                                  ? new Date(companyUser.joined_at).toLocaleDateString('pt-BR')
+                                  : 'Pendente'
+                                }
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingUser(companyUser)
+                                      setUserForm({
+                                        first_name: companyUser.profiles?.first_name || '',
+                                        last_name: companyUser.profiles?.last_name || '',
+                                        email: companyUser.profiles?.email || '',
+                                        role: companyUser.role
+                                      })
+                                      setIsEditUserOpen(true)
+                                    }}
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => toggleUserStatus(companyUser)}
+                                  >
+                                    {companyUser.is_active ? (
+                                      <Eye className="h-3 w-3" />
+                                    ) : (
+                                      <CheckCircle className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
 
-            {/* Auditoria */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Log de Acessos Recentes
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Data/Hora</TableHead>
-                      <TableHead>Usuário</TableHead>
-                      <TableHead>Ação</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      Array.from({ length: 5 }).map((_, i) => (
-                        <TableRow key={i}>
-                          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                {/* Convites Pendentes */}
+                {userInvitations.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Mail className="h-5 w-5" />
+                        Convites Pendentes
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead>Convidado por</TableHead>
+                            <TableHead>Enviado em</TableHead>
+                            <TableHead>Expira em</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {userInvitations.map(invitation => (
+                            <TableRow key={invitation.id}>
+                              <TableCell className="font-medium">{invitation.email}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline">
+                                  {invitation.role === 'administrador' ? 'Admin' :
+                                   invitation.role === 'contador' ? 'Contador' :
+                                   invitation.role === 'usuario' ? 'Usuário' : 'Visualizador'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {companyUsers.find(u => u.user_id === invitation.invited_by)?.profiles?.first_name || 'Admin'}
+                              </TableCell>
+                              <TableCell>
+                                {new Date(invitation.created_at).toLocaleDateString('pt-BR')}
+                              </TableCell>
+                              <TableCell>
+                                <span className={new Date(invitation.expires_at) < new Date() ? 'text-red-600' : 'text-muted-foreground'}>
+                                  {new Date(invitation.expires_at).toLocaleDateString('pt-BR')}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Logs de Auditoria */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Log de Atividades
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data/Hora</TableHead>
+                          <TableHead>Usuário</TableHead>
+                          <TableHead>Ação</TableHead>
+                          <TableHead>Detalhes</TableHead>
                         </TableRow>
-                      ))
-                    ) : (
-                      auditLogs.slice(0, 10).map(log => (
-                        <TableRow key={log.id}>
-                          <TableCell>
-                            {new Date(log.created_at).toLocaleString('pt-BR')}
-                          </TableCell>
-                          <TableCell>Usuário</TableCell>
-                          <TableCell>{log.action}</TableCell>
-                          <TableCell>
-                            <Badge variant="default">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Sucesso
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                      </TableHeader>
+                      <TableBody>
+                        {loading ? (
+                          Array.from({ length: 5 }).map((_, i) => (
+                            <TableRow key={i}>
+                              <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                              <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                            </TableRow>
+                          ))
+                        ) : userAuditLogs.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                              Nenhuma atividade registrada
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          userAuditLogs.slice(0, 10).map(log => (
+                            <TableRow key={log.id}>
+                              <TableCell>
+                                {new Date(log.created_at).toLocaleString('pt-BR')}
+                              </TableCell>
+                              <TableCell>
+                                {companyUsers.find(u => u.user_id === log.performed_by)?.profiles?.first_name || 'Sistema'}
+                              </TableCell>
+                              <TableCell>{log.action}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {log.details?.email && `Email: ${log.details.email}`}
+                                {log.details?.name && ` | Nome: ${log.details.name}`}
+                                {log.details?.role && ` | Role: ${log.details.role}`}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
 
           {/* Tab Integrações */}
@@ -1613,6 +2522,297 @@ const Configuracoes = () => {
                   Criar Usuário
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal Alterar Senha */}
+        <Dialog open={isChangePasswordOpen} onOpenChange={setIsChangePasswordOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Alterar Senha
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Senha Atual</label>
+                <Input
+                  type="password"
+                  placeholder="Digite sua senha atual"
+                  id="current-password"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Nova Senha</label>
+                <Input
+                  type="password"
+                  placeholder="Digite a nova senha"
+                  id="new-password"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Mínimo 8 caracteres, incluindo letras e números
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Confirmar Nova Senha</label>
+                <Input
+                  type="password"
+                  placeholder="Confirme a nova senha"
+                  id="confirm-password"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setIsChangePasswordOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={async () => {
+                  const currentPassword = (document.getElementById('current-password') as HTMLInputElement)?.value
+                  const newPassword = (document.getElementById('new-password') as HTMLInputElement)?.value
+                  const confirmPassword = (document.getElementById('confirm-password') as HTMLInputElement)?.value
+
+                  if (!currentPassword || !newPassword || !confirmPassword) {
+                    toast({
+                      title: 'Erro',
+                      description: 'Preencha todos os campos',
+                      variant: 'destructive'
+                    })
+                    return
+                  }
+
+                  if (newPassword !== confirmPassword) {
+                    toast({
+                      title: 'Erro',
+                      description: 'As senhas não coincidem',
+                      variant: 'destructive'
+                    })
+                    return
+                  }
+
+                  if (newPassword.length < 8) {
+                    toast({
+                      title: 'Erro',
+                      description: 'A senha deve ter pelo menos 8 caracteres',
+                      variant: 'destructive'
+                    })
+                    return
+                  }
+
+                  try {
+                    // Verificar senha atual fazendo login
+                    const { error: signInError } = await supabase.auth.signInWithPassword({
+                      email: profile?.email || '',
+                      password: currentPassword
+                    })
+
+                    if (signInError) {
+                      toast({
+                        title: 'Erro',
+                        description: 'Senha atual incorreta',
+                        variant: 'destructive'
+                      })
+                      return
+                    }
+
+                    // Atualizar senha
+                    const { error: updateError } = await supabase.auth.updateUser({
+                      password: newPassword
+                    })
+
+                    if (updateError) throw updateError
+
+                    toast({
+                      title: 'Senha alterada com sucesso!',
+                      description: 'Sua senha foi atualizada'
+                    })
+
+                    setIsChangePasswordOpen(false)
+
+                    // Limpar campos
+                    ;(document.getElementById('current-password') as HTMLInputElement).value = ''
+                    ;(document.getElementById('new-password') as HTMLInputElement).value = ''
+                    ;(document.getElementById('confirm-password') as HTMLInputElement).value = ''
+
+                  } catch (error: any) {
+                    toast({
+                      title: 'Erro ao alterar senha',
+                      description: error.message,
+                      variant: 'destructive'
+                    })
+                  }
+                }}
+              >
+                <Key className="h-4 w-4 mr-2" />
+                Alterar Senha
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal Adicionar Usuário */}
+        <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Convidar Usuário
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nome *</label>
+                <Input
+                  value={userForm.first_name}
+                  onChange={(e) => setUserForm(prev => ({ ...prev, first_name: e.target.value }))}
+                  placeholder="Nome do usuário"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Sobrenome</label>
+                <Input
+                  value={userForm.last_name}
+                  onChange={(e) => setUserForm(prev => ({ ...prev, last_name: e.target.value }))}
+                  placeholder="Sobrenome do usuário"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Email *</label>
+                <Input
+                  type="email"
+                  value={userForm.email}
+                  onChange={(e) => setUserForm(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder="email@empresa.com"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Role</label>
+                <Select
+                  value={userForm.role}
+                  onValueChange={(value: UserRole) => setUserForm(prev => ({ ...prev, role: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="administrador">Administrador</SelectItem>
+                    <SelectItem value="contador">Contador</SelectItem>
+                    <SelectItem value="usuario">Usuário</SelectItem>
+                    <SelectItem value="visualizador">Visualizador</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {userForm.role === 'administrador' && 'Acesso total ao sistema'}
+                  {userForm.role === 'contador' && 'Acesso a relatórios e dados fiscais'}
+                  {userForm.role === 'usuario' && 'Acesso padrão às funcionalidades'}
+                  {userForm.role === 'visualizador' && 'Apenas visualização de dados'}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsAddUserOpen(false)
+                  setUserForm({
+                    first_name: '',
+                    last_name: '',
+                    email: '',
+                    role: 'usuario'
+                  })
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={addUser}>
+                <Mail className="h-4 w-4 mr-2" />
+                Enviar Convite
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal Editar Usuário */}
+        <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Edit className="h-5 w-5" />
+                Editar Usuário
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nome</label>
+                <Input
+                  value={userForm.first_name}
+                  onChange={(e) => setUserForm(prev => ({ ...prev, first_name: e.target.value }))}
+                  placeholder="Nome do usuário"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Sobrenome</label>
+                <Input
+                  value={userForm.last_name}
+                  onChange={(e) => setUserForm(prev => ({ ...prev, last_name: e.target.value }))}
+                  placeholder="Sobrenome do usuário"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Email</label>
+                <Input
+                  type="email"
+                  value={userForm.email}
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  O email não pode ser alterado
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Role</label>
+                <Select
+                  value={userForm.role}
+                  onValueChange={(value: UserRole) => setUserForm(prev => ({ ...prev, role: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="administrador">Administrador</SelectItem>
+                    <SelectItem value="contador">Contador</SelectItem>
+                    <SelectItem value="usuario">Usuário</SelectItem>
+                    <SelectItem value="visualizador">Visualizador</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsEditUserOpen(false)
+                  setEditingUser(null)
+                  setUserForm({
+                    first_name: '',
+                    last_name: '',
+                    email: '',
+                    role: 'usuario'
+                  })
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={updateUser}>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Salvar Alterações
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

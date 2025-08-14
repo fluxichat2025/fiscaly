@@ -6,11 +6,14 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { RichTextEditor } from '@/components/RichTextEditor'
+import { FileUpload, UploadedFile } from '@/components/FileUpload'
 import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
-import { Plus, Filter, Loader2, Search, Layers, Users, Calendar, Archive, Tag, GripVertical, Settings, MoreVertical, Grid3X3, FileText } from 'lucide-react'
+import { Plus, Filter, Loader2, Search, Layers, Users, Calendar, Archive, Tag, GripVertical, Settings, MoreVertical, Grid3X3, FileText, X, Save, UserPlus, Hash, Activity, CalendarDays, Timer, Send, Clock, MessageSquare, Paperclip, Edit, Trash2, Eye, CheckSquare } from 'lucide-react'
 import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core'
 import { SortableList, SortableRow } from '@/components/kanban/DndWrappers'
 import SortableTask from '@/components/kanban/SortableTask'
@@ -52,6 +55,55 @@ type BoardLabel = { id: string; name: string; color: string }
 
 
 type ChecklistItem = { id: UUID; checklist_id: UUID; title: string; is_done: boolean; position: number }
+
+// Novos tipos para sistema avançado
+type TaskLabel = {
+  id: UUID
+  name: string
+  color: string
+  board_id: UUID
+}
+
+type TaskMember = {
+  id: UUID
+  task_id: UUID
+  user_id: UUID
+  assigned_at: string
+}
+
+type TaskLabelAssignment = {
+  id: UUID
+  task_id: UUID
+  label_id: UUID
+}
+
+type TaskAttachment = {
+  id: UUID
+  task_id: UUID
+  file_name: string
+  file_size: number
+  file_type: string
+  file_url: string
+  uploaded_by: UUID
+  created_at: string
+}
+
+type TaskActivity = {
+  id: UUID
+  task_id: UUID
+  user_id?: UUID | null
+  action: string
+  details: any
+  created_at: string
+}
+
+type UserProfile = {
+  id: UUID
+  first_name?: string | null
+  last_name?: string | null
+  email?: string | null
+  avatar_url?: string | null
+}
 
 // Utilidades
 const priorities: Array<Task['priority']> = ['baixa', 'media', 'alta']
@@ -151,6 +203,29 @@ export default function Tarefas() {
   // Estado para drag overlay
   const [activeTask, setActiveTask] = useState<Task | null>(null)
 
+  // Estados para sistema avançado de tarefas
+  const [taskLabels, setTaskLabels] = useState<TaskLabel[]>([])
+  const [taskMembers, setTaskMembers] = useState<TaskMember[]>([])
+  const [taskLabelAssignments, setTaskLabelAssignments] = useState<TaskLabelAssignment[]>([])
+  const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([])
+  const [taskActivities, setTaskActivities] = useState<TaskActivity[]>([])
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([])
+
+  // Estados do formulário de tarefa
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    start_date: '',
+    end_date: '',
+    priority: 'media' as Task['priority']
+  })
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([])
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([])
+  const [taskFiles, setTaskFiles] = useState<UploadedFile[]>([])
+  const [newComment, setNewComment] = useState('')
+  const [newLabelName, setNewLabelName] = useState('')
+  const [newLabelColor, setNewLabelColor] = useState('#3b82f6')
+
   useEffect(() => {
     const init = async () => {
       try {
@@ -230,10 +305,48 @@ export default function Tarefas() {
     }
   }
 
+  // Carregar dados do sistema avançado
+  const loadAdvancedTaskData = async (boardId: UUID) => {
+    try {
+      const [
+        { data: labels },
+        { data: profiles },
+        { data: members },
+        { data: labelAssignments },
+        { data: attachments },
+        { data: activities }
+      ] = await Promise.all([
+        supabase.from('task_labels').select('*').eq('board_id', boardId),
+        supabase.from('profiles').select('id, first_name, last_name, email, avatar_url'),
+        supabase.from('task_members').select('*'),
+        supabase.from('task_label_assignments').select('*'),
+        supabase.from('task_attachments').select('*'),
+        supabase.from('task_activities').select('*').order('created_at', { ascending: false }).limit(50)
+      ])
+
+      setTaskLabels(labels || [])
+      setUserProfiles(profiles || [])
+      setTaskMembers(members || [])
+      setTaskLabelAssignments(labelAssignments || [])
+      setTaskAttachments(attachments || [])
+      setTaskActivities(activities || [])
+    } catch (error: any) {
+      console.error('Erro ao carregar dados avançados:', error)
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao carregar dados',
+        description: error.message
+      })
+    }
+  }
+
   useEffect(() => {
     if (!boardId) return
     setLoading(true)
-    fetchBoardData(boardId).finally(() => setLoading(false))
+    Promise.all([
+      fetchBoardData(boardId),
+      loadAdvancedTaskData(boardId)
+    ]).finally(() => setLoading(false))
 
     // Realtime - atualizações instantâneas
     const channel = supabase.channel(`kanban-${boardId}`)
@@ -391,21 +504,44 @@ export default function Tarefas() {
   // CRUD Tasks
   const openNewTask = (column_id: UUID) => {
     if (!boardId) return
-    const t: Task = {
-      id: crypto.randomUUID(), // temporário; Supabase definirá ao inserir
-      board_id: boardId,
-      column_id,
-      title: '', description: '', priority: 'media',
-      start_at: null, due_at: null, end_at: null,
-      tags: [], progress: 0, is_archived: false, sort_order: (tasksByColumn[column_id]?.length || 0) + 1,
-      created_by: user?.id || null
-    }
-    setEditingTask(t)
-    setAssignSelected([])
-    setAttachments([])
-    setComments([])
+
+    // Limpar formulário para nova tarefa
+    setEditingTask(null)
+    setTaskForm({
+      title: '',
+      description: '',
+      start_date: '',
+      end_date: '',
+      priority: 'media'
+    })
+    setSelectedMembers([])
+    setSelectedLabels([])
+    setTaskFiles([])
+    setNewComment('')
     setChecklists([])
     setChecklistItems([])
+    setComments([])
+    setAttachments([])
+
+    // Criar uma tarefa temporária para o modal
+    const tempTask: Task = {
+      id: crypto.randomUUID(),
+      board_id: boardId,
+      column_id,
+      title: '',
+      description: '',
+      priority: 'media',
+      start_at: null,
+      due_at: null,
+      end_at: null,
+      tags: [],
+      progress: 0,
+      is_archived: false,
+      sort_order: (tasksByColumn[column_id]?.length || 0) + 1,
+      created_by: user?.id || null
+    }
+
+    setEditingTask(tempTask)
     setTaskDialogOpen(true)
   }
 
@@ -425,45 +561,149 @@ export default function Tarefas() {
   }
 
   const saveTask = async () => {
-    if (!editingTask) return
-    const payload = { ...editingTask, tags: editingTask.tags || [] }
-    if (!editingTask.title?.trim()) { toast({ variant: 'destructive', title: 'Título obrigatório' }); return }
+    const title = editingTask?.title || taskForm.title
+    const description = editingTask?.description || taskForm.description
 
-    // Upsert por id: se existir (server) atualiza senão insere
-    const { data, error } = await supabase.from('tasks')
-      .upsert({
-        id: editingTask.id,
-        board_id: editingTask.board_id,
-        column_id: editingTask.column_id,
-        title: editingTask.title.trim(),
-        description: editingTask.description || null,
-        priority: editingTask.priority,
-        start_at: editingTask.start_at || null,
-        due_at: editingTask.due_at || null,
-        end_at: editingTask.end_at || null,
-        tags: payload.tags,
-        progress: editingTask.progress || 0,
-        is_archived: editingTask.is_archived || false,
-        sort_order: editingTask.sort_order || 0,
-        created_by: editingTask.created_by || user?.id || null,
-      })
-      .select('*').single()
-
-    if (error) { toast({ variant: 'destructive', title: 'Erro', description: error.message }); return }
-
-    // Sincronizar assignments
-    if (data?.id) {
-      const { data: existing } = await supabase.from('task_assignments').select('user_id').eq('task_id', data.id)
-      const existingIds = new Set((existing||[]).map((r:any)=>r.user_id))
-      const desired = new Set(assignSelected)
-      const toInsert = [...desired].filter(id=>!existingIds.has(id)).map(user_id=>({ task_id: data.id, user_id }))
-      const toDelete = [...existingIds].filter(id=>!desired.has(id))
-      if (toInsert.length) await supabase.from('task_assignments').insert(toInsert)
-      if (toDelete.length) await supabase.from('task_assignments').delete().eq('task_id', data.id).in('user_id', toDelete)
+    if (!title?.trim()) {
+      toast({ variant: 'destructive', title: 'Título obrigatório' });
+      return
     }
 
-    setTaskDialogOpen(false); setEditingTask(null)
-    toast({ title: 'Tarefa salva' })
+    if (!boardId || !columns.length) {
+      toast({ variant: 'destructive', title: 'Selecione um quadro primeiro' });
+      return
+    }
+
+    try {
+      // Preparar dados da tarefa
+      const taskData = {
+        id: editingTask?.id,
+        board_id: boardId,
+        column_id: editingTask?.column_id || columns[0]?.id,
+        title: title.trim(),
+        description: description || null,
+        priority: editingTask?.priority || taskForm.priority,
+        start_date: editingTask?.start_at || (taskForm.start_date ? new Date(taskForm.start_date).toISOString() : null),
+        end_date: editingTask?.end_at || (taskForm.end_date ? new Date(taskForm.end_date).toISOString() : null),
+        sort_order: editingTask?.sort_order || 0,
+        created_by: editingTask?.created_by || user?.id || null,
+      }
+
+      // Salvar tarefa
+      const { data: savedTask, error: taskError } = await supabase
+        .from('tasks')
+        .upsert(taskData)
+        .select('*')
+        .single()
+
+      if (taskError) throw taskError
+
+      const taskId = savedTask.id
+
+      // Salvar membros
+      if (selectedMembers.length > 0) {
+        // Remover membros existentes
+        await supabase.from('task_members').delete().eq('task_id', taskId)
+
+        // Adicionar novos membros
+        const memberData = selectedMembers.map(userId => ({
+          task_id: taskId,
+          user_id: userId
+        }))
+
+        const { error: membersError } = await supabase
+          .from('task_members')
+          .insert(memberData)
+
+        if (membersError) throw membersError
+      }
+
+      // Salvar etiquetas
+      if (selectedLabels.length > 0) {
+        // Remover etiquetas existentes
+        await supabase.from('task_label_assignments').delete().eq('task_id', taskId)
+
+        // Adicionar novas etiquetas
+        const labelData = selectedLabels.map(labelId => ({
+          task_id: taskId,
+          label_id: labelId
+        }))
+
+        const { error: labelsError } = await supabase
+          .from('task_label_assignments')
+          .insert(labelData)
+
+        if (labelsError) throw labelsError
+      }
+
+      // Salvar checklists
+      if (checklists.length > 0) {
+        // Remover checklists existentes
+        await supabase.from('task_checklists').delete().eq('task_id', taskId)
+
+        // Salvar novos checklists
+        for (const checklist of checklists) {
+          const { data: savedChecklist, error: checklistError } = await supabase
+            .from('task_checklists')
+            .insert({
+              task_id: taskId,
+              title: checklist.title,
+              position: checklist.position
+            })
+            .select('*')
+            .single()
+
+          if (checklistError) throw checklistError
+
+          // Salvar itens do checklist
+          const items = checklistItems.filter(item => item.checklist_id === checklist.id)
+          if (items.length > 0) {
+            const itemData = items.map(item => ({
+              checklist_id: savedChecklist.id,
+              text: item.title,
+              completed: item.is_done,
+              start_date: item.start_date,
+              end_date: item.end_date,
+              position: item.position
+            }))
+
+            const { error: itemsError } = await supabase
+              .from('checklist_items')
+              .insert(itemData)
+
+            if (itemsError) throw itemsError
+          }
+        }
+      }
+
+      // Registrar atividade
+      await supabase.rpc('log_task_activity', {
+        p_task_id: taskId,
+        p_user_id: user?.id,
+        p_action: editingTask?.id ? 'atualizou a tarefa' : 'criou a tarefa',
+        p_details: { title: title.trim() }
+      })
+
+      // Recarregar dados
+      if (boardId) {
+        await Promise.all([
+          fetchBoardData(boardId),
+          loadAdvancedTaskData(boardId)
+        ])
+      }
+
+      setTaskDialogOpen(false)
+      setEditingTask(null)
+      toast({ title: editingTask?.id ? 'Tarefa atualizada!' : 'Tarefa criada!' })
+
+    } catch (error: any) {
+      console.error('Erro ao salvar tarefa:', error)
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar tarefa',
+        description: error.message
+      })
+    }
   }
 
   const deleteTask = async (t: Task) => {
@@ -516,7 +756,46 @@ export default function Tarefas() {
         transition-all duration-200 ease-in-out
         ${selectedIds.includes(t.id) ? 'ring-2 ring-primary' : ''}
       `}
-      onDoubleClick={async () => { setEditingTask(t); setTaskDialogOpen(true); await loadTaskDetails(t.id) }}
+      onDoubleClick={async () => {
+        setEditingTask(t);
+        setTaskDialogOpen(true);
+        await loadTaskDetails(t.id);
+
+        // Carregar dados avançados da tarefa
+        try {
+          const [
+            { data: members },
+            { data: labelAssignments },
+            { data: taskChecklists },
+            { data: taskChecklistItems },
+            { data: taskComments },
+            { data: taskAttachments }
+          ] = await Promise.all([
+            supabase.from('task_members').select('user_id').eq('task_id', t.id),
+            supabase.from('task_label_assignments').select('label_id').eq('task_id', t.id),
+            supabase.from('task_checklists').select('*').eq('task_id', t.id).order('position'),
+            supabase.from('checklist_items').select('*').order('position'),
+            supabase.from('task_comments').select('*').eq('task_id', t.id).order('created_at'),
+            supabase.from('task_attachments').select('*').eq('task_id', t.id).order('created_at')
+          ])
+
+          setSelectedMembers(members?.map(m => m.user_id) || [])
+          setSelectedLabels(labelAssignments?.map(la => la.label_id) || [])
+          setChecklists(taskChecklists || [])
+
+          // Filtrar itens de checklist para esta tarefa
+          const taskChecklistIds = (taskChecklists || []).map(c => c.id)
+          setChecklistItems((taskChecklistItems || []).filter(item =>
+            taskChecklistIds.includes(item.checklist_id)
+          ))
+
+          setComments(taskComments || [])
+          setTaskAttachments(taskAttachments || [])
+
+        } catch (error) {
+          console.error('Erro ao carregar dados avançados da tarefa:', error)
+        }
+      }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -1083,38 +1362,638 @@ export default function Tarefas() {
           </DialogContent>
         </Dialog>
 
-        {/* Dialog Tarefa */}
-        <Dialog open={isTaskDialogOpen} onOpenChange={(o)=> { setTaskDialogOpen(o); if (!o) setEditingTask(null) }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>{editingTask?.id ? 'Editar Tarefa' : 'Nova Tarefa'}</DialogTitle></DialogHeader>
-            {editingTask && (
-              <div className="space-y-3">
-                <Input placeholder="Título" value={editingTask.title}
-                  onChange={e=>setEditingTask({...editingTask, title: e.target.value})} />
-                <Textarea placeholder="Descrição" value={editingTask.description || ''}
-                  onChange={e=>setEditingTask({...editingTask, description: e.target.value})} />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Início</label>
-                    <Input type="datetime-local" value={formatDateTimeLocal(editingTask.start_at)} onChange={e=>setEditingTask({...editingTask, start_at: e.target.value ? new Date(e.target.value).toISOString() : null})} />
+        {/* Dialog Tarefa Avançado */}
+        <Dialog open={isTaskDialogOpen} onOpenChange={(o)=> {
+          setTaskDialogOpen(o);
+          if (!o) {
+            setEditingTask(null)
+            setTaskForm({ title: '', description: '', start_date: '', end_date: '', priority: 'media' })
+            setSelectedMembers([])
+            setSelectedLabels([])
+            setTaskFiles([])
+            setNewComment('')
+          }
+        }}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader className="flex flex-row items-center justify-between">
+              <DialogTitle className="text-xl font-semibold">
+                {editingTask?.id ? 'Editar Tarefa' : 'Nova Tarefa'}
+              </DialogTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTaskDialogOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </DialogHeader>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Coluna Principal */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Título */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Título da Tarefa *</label>
+                  <Input
+                    placeholder="Digite o título da tarefa..."
+                    value={editingTask?.title || taskForm.title}
+                    onChange={e => {
+                      const value = e.target.value
+                      if (editingTask) {
+                        setEditingTask({...editingTask, title: value})
+                      } else {
+                        setTaskForm(prev => ({...prev, title: value}))
+                      }
+                    }}
+                    className="text-lg"
+                  />
+                </div>
+
+                {/* Descrição */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Descrição</label>
+                  <RichTextEditor
+                    value={editingTask?.description || taskForm.description}
+                    onChange={(value) => {
+                      if (editingTask) {
+                        setEditingTask({...editingTask, description: value})
+                      } else {
+                        setTaskForm(prev => ({...prev, description: value}))
+                      }
+                    }}
+                    placeholder="Descreva os detalhes da tarefa..."
+                  />
+                </div>
+
+                {/* Checklist Avançado */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium">Checklist</label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newChecklist = {
+                          id: Math.random().toString(36).substr(2, 9),
+                          task_id: editingTask?.id || '',
+                          title: 'Nova Lista',
+                          position: checklists.length
+                        }
+                        setChecklists(prev => [...prev, newChecklist])
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Nova Lista
+                    </Button>
                   </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Prazo</label>
-                    <Input type="datetime-local" value={formatDateTimeLocal(editingTask.due_at)} onChange={e=>setEditingTask({...editingTask, due_at: e.target.value ? new Date(e.target.value).toISOString() : null})} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Conclusão</label>
-                    <Input type="datetime-local" value={formatDateTimeLocal(editingTask.end_at)} onChange={e=>setEditingTask({...editingTask, end_at: e.target.value ? new Date(e.target.value).toISOString() : null})} />
+
+                  <div className="space-y-4">
+                    {checklists.map((checklist, checklistIndex) => (
+                      <div key={checklist.id} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <Input
+                            value={checklist.title}
+                            onChange={(e) => {
+                              const updatedChecklists = [...checklists]
+                              updatedChecklists[checklistIndex].title = e.target.value
+                              setChecklists(updatedChecklists)
+                            }}
+                            className="font-medium border-none p-0 h-auto focus-visible:ring-0"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setChecklists(prev => prev.filter(c => c.id !== checklist.id))
+                              setChecklistItems(prev => prev.filter(i => i.checklist_id !== checklist.id))
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        <div className="space-y-2">
+                          {checklistItems
+                            .filter(item => item.checklist_id === checklist.id)
+                            .map((item, itemIndex) => (
+                              <div key={item.id} className="flex items-center gap-3 p-2 border rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={item.is_done}
+                                  onChange={(e) => {
+                                    const updatedItems = [...checklistItems]
+                                    const globalIndex = updatedItems.findIndex(i => i.id === item.id)
+                                    if (globalIndex !== -1) {
+                                      updatedItems[globalIndex].is_done = e.target.checked
+                                      setChecklistItems(updatedItems)
+                                    }
+                                  }}
+                                  className="rounded"
+                                />
+                                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                                  <Input
+                                    value={item.title}
+                                    onChange={(e) => {
+                                      const updatedItems = [...checklistItems]
+                                      const globalIndex = updatedItems.findIndex(i => i.id === item.id)
+                                      if (globalIndex !== -1) {
+                                        updatedItems[globalIndex].title = e.target.value
+                                        setChecklistItems(updatedItems)
+                                      }
+                                    }}
+                                    placeholder="Descrição do item..."
+                                    className={item.is_done ? 'line-through text-muted-foreground' : ''}
+                                  />
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">Início</label>
+                                    <Input
+                                      type="datetime-local"
+                                      value={item.start_date ? new Date(item.start_date).toISOString().slice(0, 16) : ''}
+                                      onChange={(e) => {
+                                        const updatedItems = [...checklistItems]
+                                        const globalIndex = updatedItems.findIndex(i => i.id === item.id)
+                                        if (globalIndex !== -1) {
+                                          updatedItems[globalIndex].start_date = e.target.value ? new Date(e.target.value).toISOString() : null
+                                          setChecklistItems(updatedItems)
+                                        }
+                                      }}
+                                      className="text-xs"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">Término</label>
+                                    <Input
+                                      type="datetime-local"
+                                      value={item.end_date ? new Date(item.end_date).toISOString().slice(0, 16) : ''}
+                                      onChange={(e) => {
+                                        const updatedItems = [...checklistItems]
+                                        const globalIndex = updatedItems.findIndex(i => i.id === item.id)
+                                        if (globalIndex !== -1) {
+                                          updatedItems[globalIndex].end_date = e.target.value ? new Date(e.target.value).toISOString() : null
+                                          setChecklistItems(updatedItems)
+                                        }
+                                      }}
+                                      className="text-xs"
+                                    />
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setChecklistItems(prev => prev.filter(i => i.id !== item.id))
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const newItem = {
+                                id: Math.random().toString(36).substr(2, 9),
+                                checklist_id: checklist.id,
+                                title: '',
+                                is_done: false,
+                                start_date: null,
+                                end_date: null,
+                                position: checklistItems.filter(i => i.checklist_id === checklist.id).length
+                              }
+                              setChecklistItems(prev => [...prev, newItem])
+                            }}
+                            className="w-full border-dashed border-2"
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Adicionar Item
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Prioridade</label>
-                    <Select value={editingTask.priority} onValueChange={(v)=> setEditingTask({...editingTask, priority: v as Task['priority']})}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+
+                {/* Anexos */}
+                <div>
+                  <label className="text-sm font-medium mb-3 block">Anexos</label>
+                  <FileUpload
+                    onFilesChange={setTaskFiles}
+                    existingFiles={taskFiles}
+                    maxFiles={10}
+                    maxSize={10}
+                  />
+                </div>
+              </div>
+
+              {/* Coluna Lateral */}
+              <div className="space-y-6">
+                {/* Datas */}
+                <div>
+                  <label className="text-sm font-medium mb-3 block">Datas e Horários</label>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground">Data/Hora de Início</label>
+                      <Input
+                        type="datetime-local"
+                        value={editingTask?.start_at ? new Date(editingTask.start_at).toISOString().slice(0, 16) : taskForm.start_date}
+                        onChange={e => {
+                          const value = e.target.value
+                          if (editingTask) {
+                            setEditingTask({...editingTask, start_at: value ? new Date(value).toISOString() : null})
+                          } else {
+                            setTaskForm(prev => ({...prev, start_date: value}))
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Data/Hora de Término</label>
+                      <Input
+                        type="datetime-local"
+                        value={editingTask?.end_at ? new Date(editingTask.end_at).toISOString().slice(0, 16) : taskForm.end_date}
+                        onChange={e => {
+                          const value = e.target.value
+                          if (editingTask) {
+                            setEditingTask({...editingTask, end_at: value ? new Date(value).toISOString() : null})
+                          } else {
+                            setTaskForm(prev => ({...prev, end_date: value}))
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Prioridade */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Prioridade</label>
+                  <Select
+                    value={editingTask?.priority || taskForm.priority}
+                    onValueChange={(v) => {
+                      const priority = v as Task['priority']
+                      if (editingTask) {
+                        setEditingTask({...editingTask, priority})
+                      } else {
+                        setTaskForm(prev => ({...prev, priority}))
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {priorities.map(p => (
+                        <SelectItem key={p} value={p}>
+                          <div className="flex items-center gap-2">
+                            {priorityBadge(p)}
+                            <span className="capitalize">{p}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Membros */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Membros da Tarefa</label>
+                  <div className="space-y-3">
+                    <Select
+                      value=""
+                      onValueChange={(userId) => {
+                        if (!selectedMembers.includes(userId)) {
+                          setSelectedMembers(prev => [...prev, userId])
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Adicionar membro..." />
+                      </SelectTrigger>
                       <SelectContent>
-                        {priorities.map(p=> <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                        {userProfiles
+                          .filter(profile => !selectedMembers.includes(profile.id))
+                          .map(profile => (
+                            <SelectItem key={profile.id} value={profile.id}>
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs">
+                                  {(profile.first_name?.[0] || profile.email?.[0] || '?').toUpperCase()}
+                                </div>
+                                <span>{profile.first_name || profile.email}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
                       </SelectContent>
+                    </Select>
+
+                    {selectedMembers.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedMembers.map(userId => {
+                          const profile = userProfiles.find(p => p.id === userId)
+                          return (
+                            <Badge key={userId} variant="secondary" className="flex items-center gap-1">
+                              <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-xs">
+                                {(profile?.first_name?.[0] || profile?.email?.[0] || '?').toUpperCase()}
+                              </div>
+                              <span className="text-xs">{profile?.first_name || profile?.email}</span>
+                              <button
+                                onClick={() => setSelectedMembers(prev => prev.filter(id => id !== userId))}
+                                className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Etiquetas */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Etiquetas</label>
+                  <div className="space-y-3">
+                    <Select
+                      value=""
+                      onValueChange={(labelId) => {
+                        if (!selectedLabels.includes(labelId)) {
+                          setSelectedLabels(prev => [...prev, labelId])
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Adicionar etiqueta..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskLabels
+                          .filter(label => !selectedLabels.includes(label.id))
+                          .map(label => (
+                            <SelectItem key={label.id} value={label.id}>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: label.color }}
+                                />
+                                <span>{label.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+
+                    {/* Criar nova etiqueta */}
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Nova etiqueta..."
+                        value={newLabelName}
+                        onChange={(e) => setNewLabelName(e.target.value)}
+                        className="flex-1"
+                      />
+                      <input
+                        type="color"
+                        value={newLabelColor}
+                        onChange={(e) => setNewLabelColor(e.target.value)}
+                        className="w-10 h-10 rounded border cursor-pointer"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={async () => {
+                          if (!newLabelName.trim() || !boardId) return
+
+                          try {
+                            const { data, error } = await supabase
+                              .from('task_labels')
+                              .insert({
+                                name: newLabelName.trim(),
+                                color: newLabelColor,
+                                board_id: boardId
+                              })
+                              .select()
+                              .single()
+
+                            if (error) throw error
+
+                            setTaskLabels(prev => [...prev, data])
+                            setNewLabelName('')
+                            setNewLabelColor('#3b82f6')
+                            toast({ title: 'Etiqueta criada com sucesso!' })
+                          } catch (error: any) {
+                            toast({
+                              variant: 'destructive',
+                              title: 'Erro ao criar etiqueta',
+                              description: error.message
+                            })
+                          }
+                        }}
+                        disabled={!newLabelName.trim()}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {selectedLabels.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedLabels.map(labelId => {
+                          const label = taskLabels.find(l => l.id === labelId)
+                          if (!label) return null
+                          return (
+                            <Badge
+                              key={labelId}
+                              className="flex items-center gap-1"
+                              style={{ backgroundColor: label.color, color: 'white' }}
+                            >
+                              <span className="text-xs">{label.name}</span>
+                              <button
+                                onClick={() => setSelectedLabels(prev => prev.filter(id => id !== labelId))}
+                                className="ml-1 hover:bg-black/20 rounded-full p-0.5"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Seção de Comentários e Atividades */}
+            {editingTask?.id && (
+              <div className="mt-6 border-t pt-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Comentários */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <MessageSquare className="h-4 w-4" />
+                      <h3 className="font-medium">Comentários</h3>
+                    </div>
+
+                    <div className="space-y-3 max-h-64 overflow-y-auto mb-4">
+                      {comments.map(comment => (
+                        <div key={comment.id} className="flex gap-3 p-3 bg-muted/50 rounded-lg">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium">
+                            {userProfiles.find(p => p.id === comment.user_id)?.first_name?.[0] || '?'}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium">
+                                {userProfiles.find(p => p.id === comment.user_id)?.first_name || 'Usuário'}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(comment.created_at).toLocaleString('pt-BR')}
+                              </span>
+                            </div>
+                            <p className="text-sm">{comment.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Escrever um comentário..."
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && newComment.trim() && editingTask?.id) {
+                            try {
+                              const { error } = await supabase
+                                .from('task_comments')
+                                .insert({
+                                  task_id: editingTask.id,
+                                  user_id: user?.id,
+                                  content: newComment.trim()
+                                })
+
+                              if (error) throw error
+
+                              setNewComment('')
+                              if (editingTask.id) loadTaskDetails(editingTask.id)
+                              toast({ title: 'Comentário adicionado!' })
+                            } catch (error: any) {
+                              toast({
+                                variant: 'destructive',
+                                title: 'Erro ao adicionar comentário',
+                                description: error.message
+                              })
+                            }
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={async () => {
+                          if (!newComment.trim() || !editingTask?.id) return
+
+                          try {
+                            const { error } = await supabase
+                              .from('task_comments')
+                              .insert({
+                                task_id: editingTask.id,
+                                user_id: user?.id,
+                                content: newComment.trim()
+                              })
+
+                            if (error) throw error
+
+                            setNewComment('')
+                            if (editingTask.id) loadTaskDetails(editingTask.id)
+                            toast({ title: 'Comentário adicionado!' })
+                          } catch (error: any) {
+                            toast({
+                              variant: 'destructive',
+                              title: 'Erro ao adicionar comentário',
+                              description: error.message
+                            })
+                          }
+                        }}
+                        disabled={!newComment.trim()}
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Atividades */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Activity className="h-4 w-4" />
+                      <h3 className="font-medium">Atividades</h3>
+                    </div>
+
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {taskActivities
+                        .filter(activity => activity.task_id === editingTask.id)
+                        .map(activity => (
+                          <div key={activity.id} className="flex gap-3 p-2 text-sm">
+                            <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                              <Activity className="h-3 w-3" />
+                            </div>
+                            <div className="flex-1">
+                              <p>
+                                <span className="font-medium">
+                                  {userProfiles.find(p => p.id === activity.user_id)?.first_name || 'Sistema'}
+                                </span>
+                                {' '}
+                                <span>{activity.action}</span>
+                              </p>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(activity.created_at).toLocaleString('pt-BR')}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Footer com ações */}
+            <div className="flex items-center justify-between pt-6 border-t">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {editingTask?.id && (
+                  <>
+                    <Clock className="h-4 w-4" />
+                    <span>Criado em {new Date(editingTask.created_at || '').toLocaleDateString('pt-BR')}</span>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {editingTask?.id && (
+                  <Button
+                    variant="outline"
+                    onClick={() => deleteTask(editingTask)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Excluir
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setTaskDialogOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={saveTask}>
+                  <Save className="h-4 w-4 mr-1" />
+                  {editingTask?.id ? 'Atualizar' : 'Criar'} Tarefa
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* Dialog Modelos */}
         <Dialog open={isTemplateDialogOpen} onOpenChange={setTemplateDialogOpen}>
           <DialogContent>
@@ -1138,131 +2017,6 @@ export default function Tarefas() {
                 toast({ variant:'destructive', title:'Erro', description: e.message })
               }
             }} />
-          </DialogContent>
-        </Dialog>
-
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Tags (separe por vírgula)</label>
-                    <Input value={(editingTask.tags||[]).join(', ')} onChange={e=> setEditingTask({...editingTask, tags: e.target.value.split(',').map(s=>s.trim()).filter(Boolean)})} />
-                  </div>
-                </div>
-                {/* Atribuições */}
-                <div>
-                  <label className="text-xs text-muted-foreground">Atribuídos</label>
-                  <Select value="" onValueChange={(v)=> setAssignSelected(prev => prev.includes(v) ? prev : [...prev, v])}>
-                    <SelectTrigger><SelectValue placeholder="Adicionar responsável" /></SelectTrigger>
-                    <SelectContent>
-                      {profiles.map(p=> <SelectItem key={p.user_id} value={p.user_id}>{p.first_name || p.email}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <div className="mt-2 flex gap-2 flex-wrap">
-                    {assignSelected.map(uid => {
-                      const p = profiles.find(px=>px.user_id===uid)
-                      return (
-                        <Badge key={uid} variant="secondary" className="text-xs">
-                          {(p?.first_name || p?.email || uid)}
-                          <button className="ml-2" onClick={()=> setAssignSelected(prev=> prev.filter(id=>id!==uid))}>×</button>
-                        </Badge>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Anexos (UI básica) */}
-                <div>
-                  <label className="text-xs text-muted-foreground">Anexos</label>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Input type="file" onChange={async (e)=>{
-                      const file = e.target.files?.[0]
-                      if (!file || !editingTask?.id) return
-                      const path = `${editingTask.id}/${Date.now()}_${file.name}`
-                      const up = await supabase.storage.from('task-attachments').upload(path, file)
-                      if (up.error) { toast({ variant:'destructive', title:'Erro no upload', description: up.error.message }); return }
-                      const pub = supabase.storage.from('task-attachments').getPublicUrl(path)
-                      await supabase.from('task_attachments').insert({ task_id: editingTask.id, file_name: file.name, file_type: file.type, file_size: file.size, storage_path: path, public_url: pub.data.publicUrl })
-                      await loadTaskDetails(editingTask.id)
-                    }} />
-                  </div>
-                  <div className="mt-2 space-y-1 text-sm">
-                    {attachments.map(a=> (
-                      <div key={a.id} className="flex items-center justify-between">
-                        <span>{a.file_name}</span>
-                        {a.public_url && <a className="text-primary underline" href={a.public_url} target="_blank">Baixar</a>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Comentários */}
-                <div>
-                  <label className="text-xs text-muted-foreground">Comentários</label>
-                  <div className="space-y-2 max-h-32 overflow-auto border rounded p-2">
-                    {comments.map(c=> (
-                      <div key={c.id} className="text-xs">
-                        <span className="text-muted-foreground">{new Date(c.created_at).toLocaleString('pt-BR')}:</span> {c.content}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 flex gap-2">
-                    <Input placeholder="Adicionar comentário..." onKeyDown={async (e)=>{
-                      if (e.key==='Enter' && editingTask?.id) {
-                        const v = (e.target as HTMLInputElement).value.trim()
-                        if (!v) return
-                        const { error } = await supabase.from('task_comments').insert({ task_id: editingTask.id, user_id: user?.id, content: v })
-                        if (!error) { (e.target as HTMLInputElement).value=''; loadTaskDetails(editingTask.id) }
-                      }
-                    }} />
-                  </div>
-                </div>
-
-                {/* Checklists simples */}
-                <div>
-                  <label className="text-xs text-muted-foreground">Checklist</label>
-                  {checklists.map(cl => (
-                    <div key={cl.id} className="mt-2">
-                      <div className="text-xs font-medium">{cl.title}</div>
-                      {(checklistItems.filter(i=>i.checklist_id===cl.id)).map(it => (
-                        <div key={it.id} className="flex items-center gap-2 text-xs mt-1">
-                          <input type="checkbox" checked={it.is_done} onChange={async (e)=>{
-                            await supabase.from('task_checklist_items').update({ is_done: e.target.checked }).eq('id', it.id)
-                            if (editingTask?.id) loadTaskDetails(editingTask.id)
-                          }} />
-                          <span className={it.is_done ? 'line-through text-muted-foreground':''}>{it.title}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  <div className="mt-2 flex gap-2">
-                    <Input placeholder="Nova checklist..." onKeyDown={async (e)=>{
-                      if (e.key==='Enter' && editingTask?.id) {
-                        const v = (e.target as HTMLInputElement).value.trim()
-                        if (!v) return
-                        const { error } = await supabase.from('task_checklists').insert({ task_id: editingTask.id, title: v })
-                        if (!error) { (e.target as HTMLInputElement).value=''; loadTaskDetails(editingTask.id) }
-                      }
-                    }} />
-                    <Input placeholder="Novo item..." onKeyDown={async (e)=>{
-                      if (e.key==='Enter' && checklists[0]?.id) {
-                        const v = (e.target as HTMLInputElement).value.trim()
-                        if (!v) return
-                        const { error } = await supabase.from('task_checklist_items').insert({ checklist_id: checklists[0].id, title: v })
-                        if (!error && editingTask?.id) { (e.target as HTMLInputElement).value=''; loadTaskDetails(editingTask.id) }
-                      }
-                    }} />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">Progresso: {Math.round(editingTask.progress||0)}%</div>
-                  <div className="flex items-center gap-2">
-                    {editingTask.id && <Button variant="outline" onClick={()=>deleteTask(editingTask)}>Excluir</Button>}
-                    <Button onClick={saveTask}>Salvar</Button>
-                  </div>
-                </div>
-              </div>
-            )}
           </DialogContent>
         </Dialog>
     </Layout>
