@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Skeleton } from '@/components/ui/skeleton'
 
 type FinanceAccount = { id: string; name: string; opening_balance: number }
+type Category = { id: string; name: string; type: 'income' | 'expense'; color: string; icon: string }
 
 type FinanceTx = {
   id: string
@@ -66,6 +67,7 @@ const FluxoDeCaixa = () => {
 
   const [accounts, setAccounts] = useState<FinanceAccount[]>([])
   const [txs, setTxs] = useState<FinanceTx[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
 
   // Filtros expandidos
   const [fAccount, setFAccount] = useState<string>('todas')
@@ -107,6 +109,19 @@ const FluxoDeCaixa = () => {
           toast({ title: 'Erro ao carregar lançamentos', description: txErr.message, variant: 'destructive' })
         } else {
           setTxs((txData || []) as any)
+        }
+
+        // Carregar categorias
+        const { data: categoriesData, error: categoriesError } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('active', true)
+          .order('name', { ascending: true })
+
+        if (categoriesError) {
+          console.warn('Erro ao carregar categorias:', categoriesError.message)
+        } else {
+          setCategories(categoriesData as any)
         }
       } finally {
         setIsLoading(false)
@@ -1026,7 +1041,17 @@ const FluxoDeCaixa = () => {
               <Input type="date" placeholder="Data de Vencimento" onChange={e=>setForm(prev=>({...prev, due_date: e.target.value}))} />
               <Input type="date" placeholder="Data de Pagamento" onChange={e=>setForm(prev=>({...prev, payment_date: e.target.value||null}))} />
               <Input type="number" step="0.01" placeholder="Valor" onChange={e=>setForm(prev=>({...prev, amount: Number(e.target.value||0)}))} />
-              <Input placeholder="Categoria" onChange={e=>setForm(prev=>({...prev, category: e.target.value}))} />
+              <Select value={form.category} onValueChange={value => setForm(prev => ({...prev, category: value}))}>
+                <SelectTrigger><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
+                <SelectContent>
+                  {categories
+                    .filter(c => c.type === (form.type === 'entrada' ? 'income' : 'expense'))
+                    .map(cat => (
+                      <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
               <Input placeholder="Contato" onChange={e=>setForm(prev=>({...prev, contact: e.target.value}))} />
               <Input placeholder="Observações" onChange={e=>setForm(prev=>({...prev, notes: e.target.value}))} />
               <div className="md:col-span-2">

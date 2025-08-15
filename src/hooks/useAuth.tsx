@@ -6,12 +6,16 @@ import { useToast } from '@/hooks/use-toast';
 interface Profile {
   id: string;
   user_id: string;
-  first_name: string;
+  full_name: string;
   email: string;
   phone?: string;
-  role: 'admin' | 'colaborador';
+  role: 'admin' | 'colaborador'; // Mantido para compatibilidade
+  user_type: 'admin' | 'user' | 'viewer';
+  company_id: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
+  created_by?: string;
 }
 
 interface AuthContextType {
@@ -20,7 +24,6 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string, firstName: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
 }
@@ -44,6 +47,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Error fetching profile:', error);
+        return;
+      }
+
+      // Verificar se o usuário está ativo
+      if (!data.active) {
+        toast({
+          title: "Acesso negado",
+          description: "Sua conta foi desativada. Entre em contato com o administrador.",
+          variant: "destructive",
+        });
+        await supabase.auth.signOut();
         return;
       }
 
@@ -113,44 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, firstName: string) => {
-    try {
-      const redirectUrl = `${window.location.origin}/`;
-      
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            first_name: firstName,
-          },
-        },
-      });
-
-      if (error) {
-        toast({
-          title: "Erro no cadastro",
-          description: error.message,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Cadastro realizado",
-          description: "Verifique seu email para confirmar a conta",
-        });
-      }
-
-      return { error };
-    } catch (error: any) {
-      toast({
-        title: "Erro no cadastro",
-        description: "Ocorreu um erro inesperado",
-        variant: "destructive",
-      });
-      return { error };
-    }
-  };
+  // signUp removido - apenas administradores podem criar usuários via dashboard
 
   const signOut = async () => {
     try {
@@ -172,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.user_type === 'admin' || profile?.role === 'admin';
 
   const value = {
     user,
@@ -180,7 +157,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     loading,
     signIn,
-    signUp,
     signOut,
     isAdmin,
   };

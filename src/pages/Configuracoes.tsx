@@ -185,7 +185,7 @@ type FinanceAccount = {
 }
 
 const Configuracoes = () => {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   const { toast } = useToast()
 
   // Estados principais
@@ -715,6 +715,130 @@ const Configuracoes = () => {
     } catch (error: any) {
       toast({
         title: 'Erro ao salvar dados da empresa',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para criar nova conta bancária
+  const createAccount = async () => {
+    if (!accountForm.name) {
+      toast({
+        title: 'Campo obrigatório',
+        description: 'Nome da conta é obrigatório',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('finance_accounts')
+        .insert([{
+          name: accountForm.name,
+          opening_balance: accountForm.opening_balance,
+          created_by: user?.id
+        }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setAccounts(prev => [...prev, data as FinanceAccount])
+      setAccountForm({ name: '', bank: '', agency: '', account: '', type: 'checking', opening_balance: 0 })
+      setIsNewAccountOpen(false)
+
+      toast({ title: 'Conta bancária criada com sucesso' })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao criar conta bancária',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para criar nova categoria
+  const createCategory = async () => {
+    if (!categoryForm.name) {
+      toast({
+        title: 'Campo obrigatório',
+        description: 'Nome da categoria é obrigatório',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .insert([{
+          name: categoryForm.name,
+          type: categoryForm.type,
+          color: categoryForm.color,
+          icon: categoryForm.icon,
+          created_by: user?.id
+        }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setCategories(prev => [...prev, data as Category])
+      setCategoryForm({ name: '', type: 'income', color: '#3b82f6', icon: 'folder' })
+      setIsNewCategoryOpen(false)
+
+      toast({ title: 'Categoria criada com sucesso' })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao criar categoria',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para excluir conta bancária
+  const deleteAccount = async (accountId: string) => {
+    try {
+      const { error } = await supabase
+        .from('finance_accounts')
+        .delete()
+        .eq('id', accountId)
+
+      if (error) throw error
+
+      setAccounts(prev => prev.filter(acc => acc.id !== accountId))
+      toast({ title: 'Conta bancária excluída com sucesso' })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao excluir conta bancária',
+        description: error.message,
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Função para excluir categoria
+  const deleteCategory = async (categoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', categoryId)
+
+      if (error) throw error
+
+      setCategories(prev => prev.filter(cat => cat.id !== categoryId))
+      toast({ title: 'Categoria excluída com sucesso' })
+
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao excluir categoria',
         description: error.message,
         variant: 'destructive'
       })
@@ -1539,7 +1663,11 @@ const Configuracoes = () => {
                               <Button size="sm" variant="outline">
                                 <Edit className="h-3 w-3" />
                               </Button>
-                              <Button size="sm" variant="outline">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => deleteAccount(account.id)}
+                              >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
@@ -1590,7 +1718,11 @@ const Configuracoes = () => {
                               <Button size="sm" variant="ghost">
                                 <Edit className="h-3 w-3" />
                               </Button>
-                              <Button size="sm" variant="ghost">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => deleteCategory(category.id)}
+                              >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
@@ -1637,7 +1769,11 @@ const Configuracoes = () => {
                               <Button size="sm" variant="ghost">
                                 <Edit className="h-3 w-3" />
                               </Button>
-                              <Button size="sm" variant="ghost">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => deleteCategory(category.id)}
+                              >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
@@ -2374,7 +2510,7 @@ const Configuracoes = () => {
                 <Button variant="outline" onClick={() => setIsNewAccountOpen(false)}>
                   Cancelar
                 </Button>
-                <Button>
+                <Button onClick={createAccount}>
                   Salvar Conta
                 </Button>
               </div>
@@ -2453,7 +2589,7 @@ const Configuracoes = () => {
                 <Button variant="outline" onClick={() => setIsNewCategoryOpen(false)}>
                   Cancelar
                 </Button>
-                <Button>
+                <Button onClick={createCategory}>
                   Salvar Categoria
                 </Button>
               </div>
