@@ -1,14 +1,20 @@
 import { DashboardAprimorado } from './DashboardAprimorado';
+import DashboardFinanceiro from './DashboardFinanceiro';
 import { NoticiasContabeis } from './NoticiasContabeis';
 import { AreaTarefas } from './AreaTarefas';
 
 export function NovaHomePage() {
   return (
-    <div className="p-6">
-      {/* Layout Principal Otimizado - Dashboard 40%, Notícias 30%, Tarefas 30% */}
+    <div className="p-6 space-y-8">
+      {/* Dashboard Financeiro - Dados Reais */}
+      <div className="w-full">
+        <DashboardFinanceiro />
+      </div>
+
+      {/* Layout Principal - NFSe, Notícias e Tarefas */}
       <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
 
-        {/* Dashboard Aprimorado - 40% da largura (4/10 colunas) */}
+        {/* Dashboard NFSe - 40% da largura (4/10 colunas) */}
         <div className="lg:col-span-4 order-1">
           <div className="sticky top-6">
             <DashboardAprimorado />
@@ -35,16 +41,16 @@ export function NovaHomePage() {
       <div className="lg:hidden mt-8">
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-primary/5 rounded-lg p-3 text-center">
-            <h3 className="font-semibold text-primary text-sm">Dashboard</h3>
-            <p className="text-xs text-muted-foreground">40% - KPIs</p>
+            <h3 className="font-semibold text-primary text-sm">Financeiro</h3>
+            <p className="text-xs text-muted-foreground">Dados Reais</p>
           </div>
           <div className="bg-blue-50 rounded-lg p-3 text-center">
-            <h3 className="font-semibold text-blue-700 text-sm">Notícias</h3>
-            <p className="text-xs text-muted-foreground">30% - Atualizações</p>
+            <h3 className="font-semibold text-blue-700 text-sm">NFSe</h3>
+            <p className="text-xs text-muted-foreground">Dados Reais</p>
           </div>
           <div className="bg-green-50 rounded-lg p-3 text-center">
             <h3 className="font-semibold text-green-700 text-sm">Tarefas</h3>
-            <p className="text-xs text-muted-foreground">30% - Pendências</p>
+            <p className="text-xs text-muted-foreground">Sistema</p>
           </div>
         </div>
       </div>
@@ -71,8 +77,8 @@ export function NovaHomePage() {
           <div>
             <h4 className="font-semibold text-foreground mb-2">Sistema</h4>
             <div className="space-y-1 text-sm text-muted-foreground">
-              <p>• Versão 2.0</p>
-              <p>• Última atualização: Hoje</p>
+              <p>• Versão 2.1 - Dados Reais</p>
+              <p>• Dashboard Atualizado</p>
               <p>• Status: Online</p>
             </div>
           </div>

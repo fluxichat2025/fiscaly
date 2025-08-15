@@ -67,160 +67,243 @@ export function DashboardAprimorado() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Debug - Buscando dados do dashboard...');
+      console.log('🔍 Buscando dados reais do dashboard...');
 
-      // Buscar dados reais do Supabase
-      const [notasFiscaisResult, empresasResult] = await Promise.all([
-        supabase.from('notas_fiscais').select('*'),
-        supabase.from('empresas').select('*')
+      // Buscar dados reais das tabelas corretas
+      const [nfseResult, invoicesResult, companiesResult, financeAccountsResult, financeTransactionsResult, categoriesResult] = await Promise.all([
+        supabase.from('nfse_emitidas').select('*'),
+        supabase.from('invoices').select('*'),
+        supabase.from('companies').select('*'),
+        supabase.from('finance_accounts').select('*'),
+        supabase.from('finance_transactions').select('*'),
+        supabase.from('categories').select('*')
       ]);
 
-      console.log('🔍 Debug - Dados do Supabase:', {
-        notasFiscais: notasFiscaisResult.data?.length || 0,
-        empresas: empresasResult.data?.length || 0,
-        errors: {
-          notasFiscais: notasFiscaisResult.error,
-          empresas: empresasResult.error
-        }
+      console.log('📊 Dados encontrados:', {
+        nfse: nfseResult.data?.length || 0,
+        invoices: invoicesResult.data?.length || 0,
+        companies: companiesResult.data?.length || 0,
+        accounts: financeAccountsResult.data?.length || 0,
+        transactions: financeTransactionsResult.data?.length || 0,
+        categories: categoriesResult.data?.length || 0
       });
 
-      // Se houver dados reais, processar
-      if (notasFiscaisResult.data && notasFiscaisResult.data.length > 0) {
-        console.log('✅ Debug - Usando dados reais do Supabase');
-        setStats(processRealData(notasFiscaisResult.data, empresasResult.data || []));
-      } else {
-        console.log('⚠️  Debug - Sem dados reais, usando dados simulados');
-        setStats(getSimulatedData());
-      }
+      // Processar dados reais
+      const realStats = await processRealData({
+        nfse: nfseResult.data || [],
+        invoices: invoicesResult.data || [],
+        companies: companiesResult.data || [],
+        accounts: financeAccountsResult.data || [],
+        transactions: financeTransactionsResult.data || [],
+        categories: categoriesResult.data || []
+      });
+
+      setStats(realStats);
     } catch (error) {
       console.error('❌ Erro ao buscar dados do dashboard:', error);
-      setStats(getSimulatedData());
+      // Em caso de erro, mostrar dados zerados em vez de simulados
+      setStats(getEmptyData());
     } finally {
       setLoading(false);
     }
   };
 
-  const getSimulatedData = (): DashboardStats => {
+  const getEmptyData = (): DashboardStats => {
     return {
-      totalNFSe: 1247,
-      valorTotalFaturado: 2847650.00,
-      empresasCadastradas: 18,
-      nfseMesAtual: 89,
-      valorMesAtual: 156780.00,
-      crescimentoMensal: 12.5,
-      statusDistribution: [
-        { name: 'Emitidas', value: 1180, color: '#10b981' },
-        { name: 'Canceladas', value: 45, color: '#ef4444' },
-        { name: 'Pendentes', value: 22, color: '#f59e0b' }
-      ],
-      evolucaoMensal: [
-        { mes: 'Jan', nfse: 95, valor: 142000 },
-        { mes: 'Fev', nfse: 108, valor: 158000 },
-        { mes: 'Mar', nfse: 87, valor: 134000 },
-        { mes: 'Abr', nfse: 112, valor: 167000 },
-        { mes: 'Mai', nfse: 98, valor: 145000 },
-        { mes: 'Jun', nfse: 125, valor: 189000 },
-        { mes: 'Jul', nfse: 89, valor: 156780 }
-      ],
-      faturamentoPorMes: [
-        { mes: 'Jan', valor: 142000 },
-        { mes: 'Fev', valor: 158000 },
-        { mes: 'Mar', valor: 134000 },
-        { mes: 'Abr', valor: 167000 },
-        { mes: 'Mai', valor: 145000 },
-        { mes: 'Jun', valor: 189000 },
-        { mes: 'Jul', valor: 156780 }
-      ]
+      totalNFSe: 0,
+      valorTotalFaturado: 0,
+      empresasCadastradas: 0,
+      nfseMesAtual: 0,
+      valorMesAtual: 0,
+      crescimentoMensal: 0,
+      statusDistribution: [],
+      evolucaoMensal: [],
+      faturamentoPorMes: []
     };
   };
 
-  const processRealData = (notasFiscais: any[], empresas: any[]): DashboardStats => {
-    console.log('🔍 Debug - Processando dados reais...');
+  const processRealData = async (data: {
+    nfse: any[];
+    invoices: any[];
+    companies: any[];
+    accounts: any[];
+    transactions: any[];
+    categories: any[];
+  }): Promise<DashboardStats> => {
+    console.log('📊 Processando dados reais do sistema...');
 
-    // Métricas básicas
-    const totalNFSe = notasFiscais.length;
-    const valorTotal = notasFiscais.reduce((sum, nf) => sum + (parseFloat(nf.valor_servicos) || 0), 0);
-    const empresasCadastradas = empresas.length;
+    const { nfse, invoices, companies, accounts, transactions } = data;
 
-    // Calcular dados do mês atual
-    const agora = new Date();
-    const mesAtual = agora.getMonth();
-    const anoAtual = agora.getFullYear();
+    // === DADOS DE NFSe ===
+    const totalNFSe = nfse.length + invoices.length;
+    const empresasCadastradas = companies.length;
 
-    const nfsesMesAtual = notasFiscais.filter(nf => {
-      if (!nf.data_emissao) return false;
-      const dataNf = new Date(nf.data_emissao);
-      return dataNf.getMonth() === mesAtual && dataNf.getFullYear() === anoAtual;
+    // Calcular valor total faturado (NFSe + Invoices)
+    const valorTotalNFSe = nfse.reduce((acc, nota) => {
+      const valor = parseFloat(nota.servico_valor_servicos || nota.valor_liquido_nfse || 0);
+      return acc + valor;
+    }, 0);
+
+    const valorTotalInvoices = invoices.reduce((acc, invoice) => {
+      const valor = parseFloat(invoice.valor_total || 0);
+      return acc + valor;
+    }, 0);
+
+    const valorTotalFaturado = valorTotalNFSe + valorTotalInvoices;
+
+    // === DADOS DO MÊS ATUAL ===
+    const mesAtual = new Date().getMonth();
+    const anoAtual = new Date().getFullYear();
+
+    const nfseMesAtual = nfse.filter(nota => {
+      if (!nota.data_emissao) return false;
+      const dataEmissao = new Date(nota.data_emissao);
+      return dataEmissao.getMonth() === mesAtual && dataEmissao.getFullYear() === anoAtual;
     });
 
-    const valorMesAtual = nfsesMesAtual.reduce((sum, nf) => sum + (parseFloat(nf.valor_servicos) || 0), 0);
-
-    // Calcular crescimento mensal
-    const mesAnterior = new Date(anoAtual, mesAtual - 1);
-    const nfsesMesAnterior = notasFiscais.filter(nf => {
-      if (!nf.data_emissao) return false;
-      const dataNf = new Date(nf.data_emissao);
-      return dataNf.getMonth() === mesAnterior.getMonth() && dataNf.getFullYear() === mesAnterior.getFullYear();
+    const invoicesMesAtual = invoices.filter(invoice => {
+      if (!invoice.data_emissao) return false;
+      const dataEmissao = new Date(invoice.data_emissao);
+      return dataEmissao.getMonth() === mesAtual && dataEmissao.getFullYear() === anoAtual;
     });
 
-    const valorMesAnterior = nfsesMesAnterior.reduce((sum, nf) => sum + (parseFloat(nf.valor_servicos) || 0), 0);
-    const crescimentoMensal = valorMesAnterior > 0 ? ((valorMesAtual - valorMesAnterior) / valorMesAnterior) * 100 : 0;
+    const nfseMesAtualCount = nfseMesAtual.length + invoicesMesAtual.length;
 
-    // Distribuição por status
-    const statusCounts = notasFiscais.reduce((acc, nf) => {
-      const status = nf.status || 'emitida';
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const valorMesAtualNFSe = nfseMesAtual.reduce((acc, nota) => {
+      const valor = parseFloat(nota.servico_valor_servicos || nota.valor_liquido_nfse || 0);
+      return acc + valor;
+    }, 0);
 
-    const statusDistribution = [
-      { name: 'Emitidas', value: statusCounts.emitida || statusCounts.autorizada || totalNFSe, color: '#10b981' },
-      { name: 'Canceladas', value: statusCounts.cancelada || 0, color: '#ef4444' },
-      { name: 'Pendentes', value: statusCounts.pendente || statusCounts.processando || 0, color: '#f59e0b' }
-    ];
+    const valorMesAtualInvoices = invoicesMesAtual.reduce((acc, invoice) => {
+      const valor = parseFloat(invoice.valor_total || 0);
+      return acc + valor;
+    }, 0);
 
-    // Evolução mensal (últimos 7 meses)
+    const valorMesAtual = valorMesAtualNFSe + valorMesAtualInvoices;
+
+    // === CRESCIMENTO MENSAL ===
+    const mesAnterior = mesAtual === 0 ? 11 : mesAtual - 1;
+    const anoMesAnterior = mesAtual === 0 ? anoAtual - 1 : anoAtual;
+
+    const nfseMesAnterior = nfse.filter(nota => {
+      if (!nota.data_emissao) return false;
+      const dataEmissao = new Date(nota.data_emissao);
+      return dataEmissao.getMonth() === mesAnterior && dataEmissao.getFullYear() === anoMesAnterior;
+    });
+
+    const invoicesMesAnterior = invoices.filter(invoice => {
+      if (!invoice.data_emissao) return false;
+      const dataEmissao = new Date(invoice.data_emissao);
+      return dataEmissao.getMonth() === mesAnterior && dataEmissao.getFullYear() === anoMesAnterior;
+    });
+
+    const valorMesAnteriorNFSe = nfseMesAnterior.reduce((acc, nota) => {
+      const valor = parseFloat(nota.servico_valor_servicos || nota.valor_liquido_nfse || 0);
+      return acc + valor;
+    }, 0);
+
+    const valorMesAnteriorInvoices = invoicesMesAnterior.reduce((acc, invoice) => {
+      const valor = parseFloat(invoice.valor_total || 0);
+      return acc + valor;
+    }, 0);
+
+    const valorMesAnterior = valorMesAnteriorNFSe + valorMesAnteriorInvoices;
+
+    const crescimentoMensal = valorMesAnterior > 0
+      ? ((valorMesAtual - valorMesAnterior) / valorMesAnterior) * 100
+      : 0;
+
+    // === DISTRIBUIÇÃO POR STATUS ===
+    const statusCount: Record<string, number> = {};
+
+    // Contar status das NFSe
+    nfse.forEach(nota => {
+      const status = nota.status_processamento || nota.rps_status || 'emitida';
+      statusCount[status] = (statusCount[status] || 0) + 1;
+    });
+
+    // Contar status dos Invoices
+    invoices.forEach(invoice => {
+      const status = invoice.status || 'emitida';
+      statusCount[status] = (statusCount[status] || 0) + 1;
+    });
+
+    const statusDistribution = Object.entries(statusCount).map(([status, count]) => ({
+      name: status === 'emitida' || status === 'autorizada' ? 'Emitidas' :
+            status === 'cancelada' ? 'Canceladas' :
+            status === 'pendente' || status === 'processando' ? 'Pendentes' :
+            status.charAt(0).toUpperCase() + status.slice(1),
+      value: count,
+      color: status === 'emitida' || status === 'autorizada' ? '#10b981' :
+             status === 'cancelada' ? '#ef4444' :
+             status === 'pendente' || status === 'processando' ? '#f59e0b' : '#6b7280'
+    }));
+
+    // === EVOLUÇÃO MENSAL (últimos 6 meses) ===
     const evolucaoMensal = [];
     const faturamentoPorMes = [];
 
-    for (let i = 6; i >= 0; i--) {
-      const data = new Date(anoAtual, mesAtual - i, 1);
-      const mesNome = data.toLocaleDateString('pt-BR', { month: 'short' });
+    for (let i = 5; i >= 0; i--) {
+      const data = new Date();
+      data.setMonth(data.getMonth() - i);
+      const mes = data.getMonth();
+      const ano = data.getFullYear();
 
-      const nfsesMes = notasFiscais.filter(nf => {
-        if (!nf.data_emissao) return false;
-        const dataNf = new Date(nf.data_emissao);
-        return dataNf.getMonth() === data.getMonth() && dataNf.getFullYear() === data.getFullYear();
+      const nfsesMes = nfse.filter(nota => {
+        if (!nota.data_emissao) return false;
+        const dataEmissao = new Date(nota.data_emissao);
+        return dataEmissao.getMonth() === mes && dataEmissao.getFullYear() === ano;
       });
 
-      const valorMes = nfsesMes.reduce((sum, nf) => sum + (parseFloat(nf.valor_servicos) || 0), 0);
+      const invoicesMes = invoices.filter(invoice => {
+        if (!invoice.data_emissao) return false;
+        const dataEmissao = new Date(invoice.data_emissao);
+        return dataEmissao.getMonth() === mes && dataEmissao.getFullYear() === ano;
+      });
+
+      const valorMesNFSe = nfsesMes.reduce((acc, nota) => {
+        const valor = parseFloat(nota.servico_valor_servicos || nota.valor_liquido_nfse || 0);
+        return acc + valor;
+      }, 0);
+
+      const valorMesInvoices = invoicesMes.reduce((acc, invoice) => {
+        const valor = parseFloat(invoice.valor_total || 0);
+        return acc + valor;
+      }, 0);
+
+      const valorMes = valorMesNFSe + valorMesInvoices;
+      const quantidadeMes = nfsesMes.length + invoicesMes.length;
+
+      const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
       evolucaoMensal.push({
-        mes: mesNome,
-        nfse: nfsesMes.length,
+        mes: nomesMeses[mes],
+        nfse: quantidadeMes,
         valor: valorMes
       });
 
       faturamentoPorMes.push({
-        mes: mesNome,
+        mes: nomesMeses[mes],
         valor: valorMes
       });
     }
 
-    console.log('✅ Debug - Dados processados:', {
+    console.log('✅ Dados reais processados:', {
       totalNFSe,
-      valorTotal,
+      valorTotalFaturado,
       empresasCadastradas,
-      nfseMesAtual: nfsesMesAtual.length,
+      nfseMesAtual: nfseMesAtualCount,
       valorMesAtual,
-      crescimentoMensal: crescimentoMensal.toFixed(1)
+      crescimentoMensal: crescimentoMensal.toFixed(1),
+      statusDistribution: statusDistribution.length,
+      evolucaoMensal: evolucaoMensal.length
     });
 
     return {
       totalNFSe,
-      valorTotalFaturado: valorTotal,
+      valorTotalFaturado,
       empresasCadastradas,
-      nfseMesAtual: nfsesMesAtual.length,
+      nfseMesAtual: nfseMesAtualCount,
       valorMesAtual,
       crescimentoMensal: Math.round(crescimentoMensal * 10) / 10,
       statusDistribution,
@@ -260,6 +343,9 @@ export function DashboardAprimorado() {
     );
   }
 
+  // Verificar se há dados para mostrar
+  const hasData = stats.totalNFSe > 0 || stats.empresasCadastradas > 0;
+
   return (
     <div className="space-y-4">
       {/* Header com controles */}
@@ -267,10 +353,10 @@ export function DashboardAprimorado() {
         <div>
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
-            Dashboard
+            Dashboard NFSe
           </h2>
           <p className="text-xs text-muted-foreground">
-            Visão geral das atividades fiscais
+            {hasData ? 'Dados reais do sistema' : 'Nenhum dado encontrado'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -351,8 +437,30 @@ export function DashboardAprimorado() {
         </Card>
       </div>
 
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Mensagem quando não há dados */}
+      {!hasData && (
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center py-8">
+            <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Nenhuma NFSe encontrada</h3>
+            <p className="text-muted-foreground text-center mb-4">
+              Para começar a ver dados de NFSe, emita suas primeiras notas fiscais ou cadastre suas empresas.
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={() => window.location.href = '/emitir-nfse'} size="sm">
+                Emitir NFSe
+              </Button>
+              <Button onClick={() => window.location.href = '/empresas'} variant="outline" size="sm">
+                Cadastrar Empresas
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Gráficos - Só mostrar se houver dados */}
+      {hasData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Gráfico de Evolução Mensal */}
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
@@ -475,7 +583,8 @@ export function DashboardAprimorado() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
