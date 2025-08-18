@@ -204,7 +204,7 @@ export const useNFSeEmissionPopup = () => {
   const consultarNFSe = useCallback(async (referencia: string) => {
     try {
       console.log('🔍 Consultando NFSe via API:', referencia);
-      const response = await fetch(`/api/nfse/${referencia}`, {
+      const response = await fetch(`/api/nfse?referencia=${referencia}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'

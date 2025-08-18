@@ -153,11 +153,14 @@ export interface CNPJData {
 
 // Detectar ambiente e configurar URL base adequada
 const isLocalhost = typeof window !== 'undefined' && window.location.hostname === 'localhost';
-const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+const isVercel = typeof window !== 'undefined' && (
+  window.location.hostname.includes('vercel.app') ||
+  window.location.hostname.includes('fluxitech.com.br')
+);
 
 const FOCUS_NFE_API_BASE = isLocalhost
   ? (import.meta.env.VITE_FOCUS_NFE_API_BASE || '/api/focusnfe/v2') // Proxy em desenvolvimento
-  : '/api/focusnfe/v2'; // Serverless function em produção (Vercel)
+  : '/api/focusnfe'; // Serverless function em produção (Vercel)
 const TOKEN_PRODUCAO = import.meta.env.VITE_FOCUS_NFE_TOKEN_PRODUCAO || 'QiCgQ0fQMu5RDfEqnVMWKruRjhJePCoe';
 const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 
@@ -237,7 +240,10 @@ export function useFocusNFeAPI() {
       }
     }
 
-    const url = `${FOCUS_NFE_API_BASE}${endpoint}`;
+    // Construir URL baseada no ambiente
+    const url = isLocalhost
+      ? `${FOCUS_NFE_API_BASE}${endpoint}` // Desenvolvimento: usar proxy direto
+      : `${FOCUS_NFE_API_BASE}?path=${endpoint.substring(1)}`; // Produção: usar query parameter
     const maxRetries = 3;
 
     // Configurar autenticação Basic Auth
@@ -328,7 +334,9 @@ export function useFocusNFeAPI() {
       // Estratégia 2: Tentar com parâmetro de token na URL
       async () => {
         console.log('🔍 Tentativa 2: Token como parâmetro');
-        const url = `${FOCUS_NFE_API_BASE}/empresas?token=${TOKEN_PRODUCAO}`;
+        const url = isLocalhost
+          ? `${FOCUS_NFE_API_BASE}/empresas?token=${TOKEN_PRODUCAO}`
+          : `${FOCUS_NFE_API_BASE}?path=v2/empresas&token=${TOKEN_PRODUCAO}`;
         const response = await fetch(url, {
           headers: { 'Content-Type': 'application/json' }
         });
@@ -339,7 +347,10 @@ export function useFocusNFeAPI() {
       // Estratégia 3: Verificar se é problema de CORS
       async () => {
         console.log('🔍 Tentativa 3: Teste de conectividade');
-        const response = await fetch(`${FOCUS_NFE_API_BASE}/empresas`, {
+        const url = isLocalhost
+          ? `${FOCUS_NFE_API_BASE}/empresas`
+          : `${FOCUS_NFE_API_BASE}?path=v2/empresas`;
+        const response = await fetch(url, {
           method: 'HEAD',
           headers: {
             'Authorization': `Basic ${btoa(`${TOKEN_PRODUCAO}:`)}`,
@@ -1099,7 +1110,11 @@ export function useFocusNFeAPI() {
       console.log('🔑 Usando token para emissão:', token.substring(0, 10) + '...');
       console.log('📤 Enviando dados para Focus NFe:', nfseData);
 
-      const response = await fetch(`${FOCUS_NFE_API_BASE}/nfse?ref=${referencia}`, {
+      const url = isLocalhost
+        ? `${FOCUS_NFE_API_BASE}/nfse?ref=${referencia}`
+        : `${FOCUS_NFE_API_BASE}?path=v2/nfse&ref=${referencia}`;
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Authorization': `Basic ${btoa(`${token}:`)}`,
@@ -1175,7 +1190,11 @@ export function useFocusNFeAPI() {
         throw new Error('Token da Focus NFe não configurado para esta empresa');
       }
 
-      const response = await fetch(`${FOCUS_NFE_API_BASE}/nfse/${referencia}`, {
+      const url = isLocalhost
+        ? `${FOCUS_NFE_API_BASE}/nfse/${referencia}`
+        : `${FOCUS_NFE_API_BASE}?path=v2/nfse/${referencia}`;
+
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Basic ${btoa(`${token}:`)}`,

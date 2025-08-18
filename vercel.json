@@ -5,6 +5,12 @@
     },
     "api/nfse/[referencia].js": {
       "maxDuration": 20
+    },
+    "api/focusnfe.js": {
+      "maxDuration": 30
+    },
+    "api/nfse.js": {
+      "maxDuration": 20
     }
   },
   "headers": [
