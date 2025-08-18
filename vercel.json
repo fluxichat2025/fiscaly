@@ -47,6 +47,10 @@
     {
       "source": "/api/focusnfe/v2/(.*)",
       "destination": "/api/focusnfe/$1"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }

@@ -231,7 +231,7 @@ export function useFocusNFeAPI() {
   // Função para fazer requisições autenticadas para a API Focus NFe com retry (fallback)
   const makeRequest = async (endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> => {
     // Em produção, tentar usar Edge Function primeiro
-    if (isProduction && endpoint === '/empresas') {
+    if (!isLocalhost && endpoint === '/empresas') {
       try {
         return await makeRequestViaSupabase(endpoint);
       } catch (edgeFunctionError) {

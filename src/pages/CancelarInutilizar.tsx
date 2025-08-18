@@ -283,10 +283,21 @@ const CancelarInutilizar = () => {
       };
 
       // Fazer requisição de cancelamento para a Focus NFe
-      const response = await makeRequest(`/nfse/${nfseSelecionada.referencia}`, {
+      const isLocalhost = window.location.hostname === 'localhost';
+      const cancelUrl = isLocalhost
+        ? `/api/focusnfe/v2/nfse/${nfseSelecionada.referencia}`
+        : `/api/focusnfe?path=v2/nfse/${nfseSelecionada.referencia}`;
+
+      const response = await fetch(cancelUrl, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Basic UWlDZ1EwZlFNdTVSRGZFcW5WTVdLcnVSamhKZVBDb2U6'
+        },
         body: JSON.stringify(dadosCancelamento)
       });
+
+      const responseData = await response.json();
 
       console.log('📤 Resposta do cancelamento:', response);
 
@@ -314,7 +325,7 @@ const CancelarInutilizar = () => {
         const { error: updateError } = await supabase
           .from('notas_fiscais')
           .update({
-            status: response?.status || 'cancelamento_solicitado',
+            status: responseData?.status || 'cancelamento_solicitado',
             updated_at: new Date().toISOString()
           })
           .eq('referencia', nfseSelecionada.referencia);
@@ -324,7 +335,7 @@ const CancelarInutilizar = () => {
         }
       }
 
-      if (response?.status === 'cancelado') {
+      if (response.ok && responseData?.status === 'cancelado') {
         toast({
           title: "NFSe cancelada com sucesso",
           description: `A NFSe ${nfseSelecionada.numero_nfse || nfseSelecionada.referencia} foi cancelada`,
@@ -383,11 +394,20 @@ const CancelarInutilizar = () => {
         .order('data_cancelamento', { ascending: false })
         .limit(50);
 
-      if (error) throw error;
+      if (error) {
+        // Se a tabela não existe, criar um histórico vazio
+        if (error.message.includes('relation "public.historico_cancelamentos" does not exist')) {
+          console.log('⚠️ Tabela historico_cancelamentos não existe');
+          setHistoricoCancelamentos([]);
+          return;
+        }
+        throw error;
+      }
 
       setHistoricoCancelamentos(data || []);
     } catch (error) {
       console.error('Erro ao carregar histórico:', error);
+      setHistoricoCancelamentos([]);
     }
   };
 
