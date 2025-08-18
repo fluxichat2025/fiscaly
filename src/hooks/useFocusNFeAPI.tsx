@@ -152,10 +152,12 @@ export interface CNPJData {
 }
 
 // Detectar ambiente e configurar URL base adequada
-const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
-const FOCUS_NFE_API_BASE = isProduction
-  ? 'https://api.focusnfe.com.br/v2' // URL direta em produção (pode dar CORS, mas tentaremos)
-  : (import.meta.env.VITE_FOCUS_NFE_API_BASE || '/api/focusnfe/v2'); // Proxy em desenvolvimento
+const isLocalhost = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+
+const FOCUS_NFE_API_BASE = isLocalhost
+  ? (import.meta.env.VITE_FOCUS_NFE_API_BASE || '/api/focusnfe/v2') // Proxy em desenvolvimento
+  : '/api/focusnfe/v2'; // Serverless function em produção (Vercel)
 const TOKEN_PRODUCAO = import.meta.env.VITE_FOCUS_NFE_TOKEN_PRODUCAO || 'QiCgQ0fQMu5RDfEqnVMWKruRjhJePCoe';
 const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 

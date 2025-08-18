@@ -200,13 +200,14 @@ export const useNFSeEmissionPopup = () => {
     }
   }, []);
 
-  // Função para consultar NFSe via proxy
+  // Função para consultar NFSe via API otimizada
   const consultarNFSe = useCallback(async (referencia: string) => {
     try {
-      console.log('🔍 Consultando NFSe via proxy:', referencia);
-      const response = await fetch(`/api/focusnfe/v2/nfse/${referencia}`, {
+      console.log('🔍 Consultando NFSe via API:', referencia);
+      const response = await fetch(`/api/nfse/${referencia}`, {
+        method: 'GET',
         headers: {
-          'Authorization': 'Basic UWlDZ1EwZlFNdTVSRGZFcW5WTVdLcnVSamhKZVBDb2U6'
+          'Content-Type': 'application/json'
         }
       });
 
