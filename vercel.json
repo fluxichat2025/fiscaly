@@ -1,5 +1,8 @@
 {
   "functions": {
+    "api/index.js": {
+      "maxDuration": 30
+    },
     "api/focusnfe/[...path].js": {
       "maxDuration": 30
     },
@@ -33,6 +36,14 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/api/nfse",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/focusnfe",
+      "destination": "/api/index"
+    },
     {
       "source": "/api/focusnfe/v2/(.*)",
       "destination": "/api/focusnfe/$1"
