@@ -171,26 +171,38 @@ const CancelarInutilizar = () => {
         // Se não encontrou no Supabase, buscar na API Focus NFe
         try {
           const referencia = referenciaBusca || numeroNFSeBusca;
-          const response = await makeRequest(`/nfse/${referencia}`);
+          const isLocalhost = window.location.hostname === 'localhost';
+          const consultaUrl = isLocalhost
+            ? `/api/focusnfe/v2/nfse/${referencia}`
+            : `/api/focusnfe?path=v2/nfse/${referencia}`;
 
-          if (response && response.status) {
+          const response = await fetch(consultaUrl, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          const responseData = await response.json();
+
+          if (response.ok && responseData && responseData.status) {
             nfseEncontrada = {
-              id: response.ref || referencia,
-              referencia: response.ref || referencia,
-              numero_nfse: response.numero,
-              data_emissao: response.data_emissao,
-              valor_servicos: response.servico?.valor_servicos || response.valor_servicos || 0,
-              status: response.status,
-              prestador_razao_social: response.prestador?.razao_social,
-              tomador_razao_social: response.tomador?.razao_social,
-              tomador_cnpj: response.tomador?.cnpj,
-              tomador_cpf: response.tomador?.cpf,
-              discriminacao: response.servico?.discriminacao || response.discriminacao,
-              cnpj_prestador: response.prestador?.cnpj || '',
-              url_pdf: response.url_pdf,
-              url_xml: response.url_xml,
-              xml_completo: response.xml,
-              json_dados: response,
+              id: responseData.ref || referencia,
+              referencia: responseData.ref || referencia,
+              numero_nfse: responseData.numero,
+              data_emissao: responseData.data_emissao,
+              valor_servicos: responseData.servico?.valor_servicos || responseData.valor_servicos || 0,
+              status: responseData.status,
+              prestador_razao_social: responseData.prestador?.razao_social,
+              tomador_razao_social: responseData.tomador?.razao_social,
+              tomador_cnpj: responseData.tomador?.cnpj,
+              tomador_cpf: responseData.tomador?.cpf,
+              discriminacao: responseData.servico?.discriminacao || responseData.discriminacao,
+              cnpj_prestador: responseData.prestador?.cnpj || '',
+              url_pdf: responseData.url_pdf,
+              url_xml: responseData.url_xml,
+              xml_completo: responseData.xml,
+              json_dados: responseData,
               fonte: 'focus_api'
             };
             console.log('✅ NFSe encontrada na Focus API:', nfseEncontrada);

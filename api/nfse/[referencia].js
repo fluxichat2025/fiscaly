@@ -81,7 +81,7 @@ export default async function handler(req, res) {
     const response = await fetch(consultaUrl, {
       method: 'GET',
       headers: {
-        'Authorization': `Basic ${Buffer.from(`${FOCUS_NFE_TOKEN}:`).toString('base64')}`,
+        'Authorization': `Basic ${FOCUS_NFE_TOKEN}`,
         'Content-Type': 'application/json',
         'User-Agent': 'Fiscaly-NFSe-Consulta/1.0',
       },
