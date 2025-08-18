@@ -229,9 +229,16 @@ export default function ConsultarNFSeSimples() {
     setDadosXML(null);
 
     try {
-      const response = await fetch(`/api/focusnfe/v2/nfse/${referencia}`, {
+      // Detectar ambiente e usar URL correta
+      const isLocalhost = window.location.hostname === 'localhost';
+      const consultaUrl = isLocalhost
+        ? `/api/focusnfe/v2/nfse/${referencia}`
+        : `/api/nfse?referencia=${referencia}`;
+
+      const response = await fetch(consultaUrl, {
+        method: 'GET',
         headers: {
-          'Authorization': 'Basic UWlDZ1EwZlFNdTVSRGZFcW5WTVdLcnVSamhKZVBDb2U6'
+          'Content-Type': 'application/json'
         }
       });
 

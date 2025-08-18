@@ -4,17 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
-import { 
-  FileText, 
-  DollarSign, 
-  Building2, 
+import {
+  FileText,
+  DollarSign,
+  Building2,
   CalendarDays,
   TrendingUp,
   TrendingDown,
   BarChart3,
   PieChart,
   LineChart,
-  RefreshCw
+  RefreshCw,
+  XCircle,
+  AlertTriangle,
+  Calendar
 } from 'lucide-react';
 import {
   LineChart as RechartsLineChart,
@@ -39,6 +42,8 @@ interface DashboardStats {
   nfseMesAtual: number;
   valorMesAtual: number;
   crescimentoMensal: number;
+  totalCanceladas: number;
+  valorCancelado: number;
   statusDistribution: Array<{ name: string; value: number; color: string }>;
   evolucaoMensal: Array<{ mes: string; nfse: number; valor: number }>;
   faturamentoPorMes: Array<{ mes: string; valor: number }>;
@@ -52,6 +57,8 @@ export function DashboardAprimorado() {
     nfseMesAtual: 0,
     valorMesAtual: 0,
     crescimentoMensal: 0,
+    totalCanceladas: 0,
+    valorCancelado: 0,
     statusDistribution: [],
     evolucaoMensal: [],
     faturamentoPorMes: []
@@ -70,13 +77,14 @@ export function DashboardAprimorado() {
       console.log('🔍 Buscando dados reais do dashboard...');
 
       // Buscar dados reais das tabelas corretas
-      const [nfseResult, invoicesResult, companiesResult, financeAccountsResult, financeTransactionsResult, categoriesResult] = await Promise.all([
+      const [nfseResult, invoicesResult, companiesResult, financeAccountsResult, financeTransactionsResult, categoriesResult, canceladasResult] = await Promise.all([
         supabase.from('nfse_emitidas').select('*'),
         supabase.from('invoices').select('*'),
         supabase.from('companies').select('*'),
         supabase.from('finance_accounts').select('*'),
         supabase.from('finance_transactions').select('*'),
-        supabase.from('categories').select('*')
+        supabase.from('categories').select('*'),
+        supabase.from('historico_cancelamentos').select('*')
       ]);
 
       console.log('📊 Dados encontrados:', {
@@ -85,7 +93,8 @@ export function DashboardAprimorado() {
         companies: companiesResult.data?.length || 0,
         accounts: financeAccountsResult.data?.length || 0,
         transactions: financeTransactionsResult.data?.length || 0,
-        categories: categoriesResult.data?.length || 0
+        categories: categoriesResult.data?.length || 0,
+        canceladas: canceladasResult.data?.length || 0
       });
 
       // Processar dados reais
@@ -95,7 +104,8 @@ export function DashboardAprimorado() {
         companies: companiesResult.data || [],
         accounts: financeAccountsResult.data || [],
         transactions: financeTransactionsResult.data || [],
-        categories: categoriesResult.data || []
+        categories: categoriesResult.data || [],
+        canceladas: canceladasResult.data || []
       });
 
       setStats(realStats);
@@ -116,6 +126,8 @@ export function DashboardAprimorado() {
       nfseMesAtual: 0,
       valorMesAtual: 0,
       crescimentoMensal: 0,
+      totalCanceladas: 0,
+      valorCancelado: 0,
       statusDistribution: [],
       evolucaoMensal: [],
       faturamentoPorMes: []
@@ -129,10 +141,11 @@ export function DashboardAprimorado() {
     accounts: any[];
     transactions: any[];
     categories: any[];
+    canceladas: any[];
   }): Promise<DashboardStats> => {
     console.log('📊 Processando dados reais do sistema...');
 
-    const { nfse, invoices, companies, accounts, transactions } = data;
+    const { nfse, invoices, companies, accounts, transactions, canceladas } = data;
 
     // === DADOS DE NFSe ===
     const totalNFSe = nfse.length + invoices.length;
@@ -150,6 +163,27 @@ export function DashboardAprimorado() {
     }, 0);
 
     const valorTotalFaturado = valorTotalNFSe + valorTotalInvoices;
+
+    // === DADOS DE CANCELAMENTOS ===
+    const totalCanceladas = canceladas.length;
+
+    // Calcular valor total cancelado
+    const valorCancelado = canceladas.reduce((acc, cancelamento) => {
+      // Buscar a NFSe cancelada para obter o valor
+      const nfseCancelada = nfse.find(nota => nota.referencia === cancelamento.referencia) ||
+                           invoices.find(invoice => invoice.referencia === cancelamento.referencia);
+
+      if (nfseCancelada) {
+        const valor = parseFloat(nfseCancelada.servico_valor_servicos || nfseCancelada.valor_liquido_nfse || nfseCancelada.valor_total || 0);
+        return acc + valor;
+      }
+      return acc;
+    }, 0);
+
+    console.log('📊 Dados de cancelamentos processados:', {
+      totalCanceladas,
+      valorCancelado: valorCancelado.toFixed(2)
+    });
 
     // === DADOS DO MÊS ATUAL ===
     const mesAtual = new Date().getMonth();
@@ -227,6 +261,11 @@ export function DashboardAprimorado() {
       const status = invoice.status || 'emitida';
       statusCount[status] = (statusCount[status] || 0) + 1;
     });
+
+    // Adicionar cancelamentos do histórico
+    if (totalCanceladas > 0) {
+      statusCount['cancelada'] = (statusCount['cancelada'] || 0) + totalCanceladas;
+    }
 
     const statusDistribution = Object.entries(statusCount).map(([status, count]) => ({
       name: status === 'emitida' || status === 'autorizada' ? 'Emitidas' :
@@ -306,6 +345,8 @@ export function DashboardAprimorado() {
       nfseMesAtual: nfseMesAtualCount,
       valorMesAtual,
       crescimentoMensal: Math.round(crescimentoMensal * 10) / 10,
+      totalCanceladas,
+      valorCancelado,
       statusDistribution,
       evolucaoMensal,
       faturamentoPorMes
@@ -435,6 +476,40 @@ export function DashboardAprimorado() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Cards de Cancelamentos - Só mostrar se houver cancelamentos */}
+      {stats.totalCanceladas > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Total Canceladas */}
+          <Card className="shadow-sm hover:shadow-md transition-shadow cursor-pointer border-red-200">
+            <CardContent className="p-3">
+              <div className="flex flex-col items-center text-center">
+                <XCircle className="h-4 w-4 text-red-500 mb-1" />
+                <p className="text-xs font-medium text-muted-foreground">NFSe Canceladas</p>
+                <p className="text-lg font-bold text-red-600">{formatNumber(stats.totalCanceladas)}</p>
+                <p className="text-xs text-red-500">{formatCurrency(stats.valorCancelado)}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Percentual de Cancelamento */}
+          <Card className="shadow-sm hover:shadow-md transition-shadow cursor-pointer border-orange-200">
+            <CardContent className="p-3">
+              <div className="flex flex-col items-center text-center">
+                <AlertTriangle className="h-4 w-4 text-orange-500 mb-1" />
+                <p className="text-xs font-medium text-muted-foreground">Taxa de Cancelamento</p>
+                <p className="text-lg font-bold text-orange-600">
+                  {stats.totalNFSe > 0 ? ((stats.totalCanceladas / stats.totalNFSe) * 100).toFixed(1) : 0}%
+                </p>
+                <p className="text-xs text-orange-500">
+                  {stats.totalCanceladas} de {stats.totalNFSe} notas
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       </div>
 
       {/* Mensagem quando não há dados */}
