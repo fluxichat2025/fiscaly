@@ -510,7 +510,6 @@ export function DashboardAprimorado() {
           </Card>
         </div>
       )}
-      </div>
 
       {/* Mensagem quando não há dados */}
       {!hasData && (
