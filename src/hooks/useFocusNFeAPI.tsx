@@ -395,7 +395,7 @@ export function useFocusNFeAPI() {
       return empresasCache;
     }
 
-    console.log('🌍 Ambiente detectado:', isProduction ? 'Produção' : 'Desenvolvimento');
+    console.log('🌍 Ambiente detectado:', !isLocalhost ? 'Produção' : 'Desenvolvimento');
     console.log('🔗 URL da API:', FOCUS_NFE_API_BASE);
 
     try {
@@ -500,9 +500,7 @@ export function useFocusNFeAPI() {
       }
 
       // NOVA ESTRATÉGIA: Em produção, tentar Supabase primeiro
-      const isProduction = window.location.hostname !== 'localhost';
-
-      if (isProduction) {
+      if (!isLocalhost) {
         console.log('🏢 Ambiente de produção detectado, carregando do Supabase...');
         try {
           const empresasSupabase = await buscarEmpresasSupabase();
