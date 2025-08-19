@@ -516,17 +516,42 @@ export function DashboardAprimorado() {
         <Card className="shadow-sm">
           <CardContent className="flex flex-col items-center justify-center py-8">
             <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Nenhuma NFSe encontrada</h3>
+            <h3 className="text-lg font-semibold mb-2">Dashboard em Construção</h3>
             <p className="text-muted-foreground text-center mb-4">
-              Para começar a ver dados de NFSe, emita suas primeiras notas fiscais ou cadastre suas empresas.
+              {loading ? (
+                'Carregando dados do dashboard...'
+              ) : (
+                'Não há dados suficientes para exibir métricas completas. Comece emitindo NFSe ou adicionando transações financeiras para ver insights detalhados.'
+              )}
             </p>
             <div className="flex gap-2">
-              <Button onClick={() => window.location.href = '/emitir-nfse'} size="sm">
+              <Button onClick={fetchDashboardData} disabled={loading} variant="outline" size="sm">
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Carregando...' : 'Atualizar Dados'}
+              </Button>
+              <Button onClick={() => window.location.href = '/notas/emitir'} size="sm">
+                <FileText className="h-4 w-4 mr-2" />
                 Emitir NFSe
               </Button>
-              <Button onClick={() => window.location.href = '/empresas'} variant="outline" size="sm">
+              <Button onClick={() => window.location.href = '/notas/empresas'} variant="outline" size="sm">
+                <Building2 className="h-4 w-4 mr-2" />
                 Cadastrar Empresas
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Indicador de dados simulados */}
+      {hasData && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-blue-600" />
+              <p className="text-sm text-blue-800">
+                <strong>Dados do Dashboard:</strong> Algumas métricas podem incluir dados simulados para demonstração.
+                À medida que você usar o sistema, os dados reais substituirão gradualmente os exemplos.
+              </p>
             </div>
           </CardContent>
         </Card>

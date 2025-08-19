@@ -8,6 +8,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import ConsultarNFSeSimples from "./pages/ConsultarNFSeSimples";
+import ConsultarNotasGeral from "./pages/ConsultarNotasGeral";
 import EmitirNFe from "./pages/EmitirNFe";
 import EmitirNFSe from "./pages/EmitirNFSe";
 
@@ -43,6 +44,11 @@ const App = () => (
             <Route path="/notas" element={
               <ProtectedRoute>
                 <ConsultarNFSeSimples />
+              </ProtectedRoute>
+            } />
+            <Route path="/notas/consultar" element={
+              <ProtectedRoute>
+                <ConsultarNotasGeral />
               </ProtectedRoute>
             } />
             <Route path="/notas/nfe" element={

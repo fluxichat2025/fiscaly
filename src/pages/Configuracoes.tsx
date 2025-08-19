@@ -317,26 +317,50 @@ const Configuracoes = () => {
         if (companyData?.id && profile?.id) {
           console.log('🔍 Verificando permissões de admin para:', {
             user_id: profile.id,
-            company_id: companyData.id
+            company_id: companyData.id,
+            profile_user_type: profile.user_type,
+            profile_role: profile.role
           })
 
+          // Primeiro, verificar se já é admin pelo perfil
+          const isProfileAdmin = profile.user_type === 'admin' || profile.role === 'admin'
+          console.log('👤 Admin pelo perfil:', isProfileAdmin)
+
+          // Verificar na tabela user_companies
           const { data: adminCheck, error: adminError } = await supabase
             .from('user_companies')
             .select('role, is_active')
             .eq('user_id', profile.id)
             .eq('company_id', companyData.id)
-            .eq('is_active', true)
-            .single()
 
-          console.log('📊 Resultado da verificação:', { adminCheck, adminError })
+          console.log('📊 Resultado da verificação user_companies:', { adminCheck, adminError })
+
+          // Se não encontrou na user_companies, criar entrada
+          if (adminError && adminError.code === 'PGRST116') {
+            console.log('⚠️ Usuário não encontrado em user_companies, criando entrada...')
+
+            const { data: newUserCompany, error: insertError } = await supabase
+              .from('user_companies')
+              .insert([{
+                user_id: profile.id,
+                company_id: companyData.id,
+                role: isProfileAdmin ? 'administrador' : 'usuario',
+                is_active: true
+              }])
+              .select()
+              .single()
+
+            if (!insertError) {
+              console.log('✅ Entrada criada em user_companies:', newUserCompany)
+            }
+          }
 
           // Verificar múltiplas condições para admin
-          const isAdmin = adminCheck?.role === 'administrador' ||
-                         adminCheck?.role === 'admin' ||
-                         profile.user_type === 'admin' ||
-                         profile.role === 'admin'
+          const isAdmin = isProfileAdmin ||
+                         adminCheck?.role === 'administrador' ||
+                         adminCheck?.role === 'admin'
 
-          console.log('🛡️ Status de admin:', isAdmin)
+          console.log('🛡️ Status final de admin:', isAdmin)
           setIsUserAdmin(isAdmin)
 
           // Carregar usuários da empresa (apenas se for admin)

@@ -37,7 +37,7 @@ type Task = {
   column_id: UUID | null
   title: string
   description?: string | null
-  priority: 'baixa' | 'media' | 'alta'
+  priority: 'baixa' | 'media' | 'alta' | 'urgente'
   start_at?: string | null
   due_at?: string | null
   end_at?: string | null
@@ -46,6 +46,11 @@ type Task = {
   is_archived: boolean
   sort_order: number
   created_by?: UUID | null
+  assigned_to?: UUID | null
+  category?: string | null
+  dependencies?: UUID[] | null
+  estimated_hours?: number | null
+  actual_hours?: number | null
 }
 
 type TaskComment = { id: UUID; task_id: UUID; user_id: UUID | null; content: string; created_at: string }
@@ -106,9 +111,51 @@ type UserProfile = {
 }
 
 // Utilidades
-const priorities: Array<Task['priority']> = ['baixa', 'media', 'alta']
-const priorityBadge = (p: Task['priority']) =>
-  p === 'alta' ? 'bg-red-100 text-red-700' : p === 'media' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+const priorities: Array<Task['priority']> = ['baixa', 'media', 'alta', 'urgente']
+
+const getPriorityColor = (priority: Task['priority']) => {
+  const colors = {
+    'baixa': 'bg-green-100 text-green-800 border-green-200',
+    'media': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    'alta': 'bg-orange-100 text-orange-800 border-orange-200',
+    'urgente': 'bg-red-100 text-red-800 border-red-200'
+  }
+  return colors[priority] || colors.media
+}
+
+const getDueDateStatus = (dueDate: string | null) => {
+  if (!dueDate) return null
+
+  const due = new Date(dueDate)
+  const now = new Date()
+  const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+
+  if (diffDays < 0) return { status: 'overdue', days: Math.abs(diffDays), color: 'text-red-600', icon: '🔴' }
+  if (diffDays === 0) return { status: 'today', days: 0, color: 'text-orange-600', icon: '🟡' }
+  if (diffDays <= 3) return { status: 'soon', days: diffDays, color: 'text-yellow-600', icon: '🟠' }
+  return { status: 'normal', days: diffDays, color: 'text-gray-600', icon: '📅' }
+}
+
+const getTaskUrgencyScore = (task: Task) => {
+  let score = 0
+
+  // Prioridade
+  const priorityScores = { 'baixa': 1, 'media': 2, 'alta': 3, 'urgente': 4 }
+  score += priorityScores[task.priority] * 10
+
+  // Vencimento
+  const dueDateStatus = getDueDateStatus(task.due_at)
+  if (dueDateStatus?.status === 'overdue') score += 50
+  else if (dueDateStatus?.status === 'today') score += 30
+  else if (dueDateStatus?.status === 'soon') score += 20
+
+  // Progresso (tarefas com pouco progresso e prazo apertado são mais urgentes)
+  if (task.progress < 25 && dueDateStatus?.days && dueDateStatus.days <= 3) score += 15
+
+  return score
+}
+
+const priorityBadge = (p: Task['priority']) => getPriorityColor(p)
 
 function BoardLabelsEditor({ board, onSave }: { board: Board; onSave: (labels: BoardLabel[]) => void }) {
   const [labels, setLabels] = useState<BoardLabel[]>(() => (board.settings?.labels || []))
