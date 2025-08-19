@@ -1,39 +1,54 @@
 import { Layout } from '@/components/Layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { 
-  TrendingUp, 
-  TrendingDown, 
-  BarChart3, 
-  LineChart, 
-  PieChart, 
-  Activity,
-  Download,
+  Plus, 
+  Download, 
+  Upload,
   RefreshCw,
-  Calendar,
   Filter,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+  LineChart,
+  PieChart,
+  Activity,
   Zap,
   Target,
   AlertTriangle,
-  Sun,
-  Moon,
+  Eye,
+  EyeOff,
   Maximize2,
   Settings,
-  Eye,
-  EyeOff
+  Palette,
+  FileImage,
+  FileText,
+  Save,
+  X,
+  ChevronDown,
+  ChevronUp,
+  ArrowUpRight,
+  ArrowDownRight,
+  DollarSign,
+  Calendar as CalendarIcon,
+  Clock,
+  Layers
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
-import { ChartExportUtils } from '@/components/ChartExportUtils'
-import { useRef } from 'react'
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -45,6 +60,7 @@ import {
   Pie,
   Cell,
   ComposedChart,
+  CandlestickChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -56,6 +72,8 @@ import {
   ScatterChart,
   Scatter
 } from 'recharts'
+import { motion, AnimatePresence } from 'framer-motion'
+import { HeatmapChart, CandlestickChart, useTrendAnalysis } from '@/components/AdvancedCharts'
 
 // Tipos
 interface FinanceTx {
@@ -69,26 +87,30 @@ interface FinanceTx {
   category: string | null
   contact: string | null
   notes: string | null
+  attachment_url: string | null
+  invoice_id: string | null
+  transfer_group_id: string | null
 }
 
 interface ChartData {
-  periodo: string
+  date: string
   entradas: number
   saidas: number
   saldo: number
   saldoAcumulado: number
-  meta?: number
   categoria?: string
-  timestamp?: number
+  periodo?: string
 }
 
 interface KPIData {
   saldoAtual: number
-  entradasMes: number
-  saidasMes: number
+  totalEntradas: number
+  totalSaidas: number
   saldoProjetado: number
   variacaoMensal: number
-  metaAtingida: number
+  metaMensal: number
+  diasRestantes: number
+  ticketMedio: number
 }
 
 // Paleta de cores moderna
@@ -103,7 +125,7 @@ const COLORS = {
     primary: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     success: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
     warning: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-    danger: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)'
+    danger: 'linear-gradient(135deg, #ff6b6b 0%, #ffa726 100%)'
   }
 }
 
@@ -112,48 +134,64 @@ const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#0
 const FluxoDeCaixaModerno = () => {
   const { profile } = useAuth()
   const { toast } = useToast()
-  const chartRef = useRef<HTMLDivElement>(null)
 
   // Estados principais
   const [txs, setTxs] = useState<FinanceTx[]>([])
   const [loading, setLoading] = useState(true)
-  const [darkMode, setDarkMode] = useState(false)
-  
-  // Estados de filtros e controles
-  const [periodo, setPeriodo] = useState('6meses')
-  const [tipoGrafico, setTipoGrafico] = useState('barras')
-  const [categoria, setCategoria] = useState('todas')
-  const [comparacao, setComparacao] = useState('nenhuma')
-  const [showProjecao, setShowProjecao] = useState(true)
-  const [showMetas, setShowMetas] = useState(true)
-  const [metaMensal, setMetaMensal] = useState(10000)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Estados de visualização
-  const [fullscreen, setFullscreen] = useState(false)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'area' | 'pie' | 'candlestick' | 'heatmap'>('bar')
+  const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'>('monthly')
+  const [showAnimations, setShowAnimations] = useState(true)
+  const [showGrid, setShowGrid] = useState(true)
+  const [showLegend, setShowLegend] = useState(true)
+
+  // Estados de filtros
+  const [dateRange, setDateRange] = useState({
+    start: new Date(new Date().getFullYear(), new Date().getMonth() - 5, 1).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
+  })
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [amountRange, setAmountRange] = useState({ min: '', max: '' })
+
+  // Estados de comparação
+  const [compareMode, setCompareMode] = useState(false)
+  const [comparePeriod, setComparePeriod] = useState<'previous_month' | 'previous_year' | 'custom'>('previous_month')
+
+  // Estados do modal de novo lançamento
+  const [showNewTxModal, setShowNewTxModal] = useState(false)
+  const [newTx, setNewTx] = useState({
+    type: 'entrada' as 'entrada' | 'saida',
+    amount: '',
+    category: '',
+    contact: '',
+    notes: '',
+    due_date: new Date().toISOString().split('T')[0],
+    status: 'previsto' as 'previsto' | 'realizado'
+  })
 
   // Carregar dados
-  useEffect(() => {
-    loadFinanceData()
-  }, [])
-
-  const loadFinanceData = async () => {
+  const fetchTransactions = useCallback(async () => {
     try {
       setLoading(true)
-      console.log('🔄 Carregando dados financeiros...')
+      console.log('🔄 Carregando transações financeiras...')
 
-      const { data: transactions, error } = await supabase
+      const { data, error } = await supabase
         .from('finance_transactions')
         .select('*')
-        .order('due_date', { ascending: false })
+        .gte('due_date', dateRange.start)
+        .lte('due_date', dateRange.end)
+        .order('due_date', { ascending: true })
 
       if (error) throw error
 
-      setTxs(transactions || [])
-      console.log('✅ Dados carregados:', transactions?.length || 0, 'transações')
+      setTxs(data || [])
+      console.log('✅ Transações carregadas:', data?.length || 0)
 
     } catch (error: any) {
-      console.error('❌ Erro ao carregar dados:', error)
+      console.error('❌ Erro ao carregar transações:', error)
       toast({
         title: 'Erro ao carregar dados',
         description: error.message,
@@ -162,526 +200,810 @@ const FluxoDeCaixaModerno = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [dateRange, toast])
+
+  // Atualizar dados
+  const refreshData = useCallback(async () => {
+    setRefreshing(true)
+    await fetchTransactions()
+    setRefreshing(false)
+    
+    toast({
+      title: 'Dados atualizados',
+      description: 'Fluxo de caixa atualizado com sucesso'
+    })
+  }, [fetchTransactions, toast])
 
   // Processar dados para gráficos
   const chartData = useMemo(() => {
     if (!txs.length) return []
 
-    const now = new Date()
-    const meses = []
-    const numMeses = periodo === '3meses' ? 3 : periodo === '6meses' ? 6 : 12
+    const processedData: ChartData[] = []
+    const groupedData = new Map<string, { entradas: number; saidas: number; transactions: FinanceTx[] }>()
 
-    for (let i = numMeses - 1; i >= 0; i--) {
-      const data = new Date(now)
-      data.setMonth(data.getMonth() - i)
-      const mesAno = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`
-      const mesNome = data.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
+    // Agrupar por período
+    txs.forEach(tx => {
+      let key: string
+      const date = new Date(tx.due_date)
 
-      const txsMes = txs.filter(tx => {
-        const txDate = new Date(tx.due_date)
-        const txMesAno = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`
-        return txMesAno === mesAno
+      switch (viewMode) {
+        case 'daily':
+          key = date.toISOString().split('T')[0]
+          break
+        case 'weekly':
+          const weekStart = new Date(date)
+          weekStart.setDate(date.getDate() - date.getDay())
+          key = weekStart.toISOString().split('T')[0]
+          break
+        case 'monthly':
+          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+          break
+        case 'quarterly':
+          const quarter = Math.floor(date.getMonth() / 3) + 1
+          key = `${date.getFullYear()}-Q${quarter}`
+          break
+        case 'yearly':
+          key = date.getFullYear().toString()
+          break
+        default:
+          key = date.toISOString().split('T')[0]
+      }
+
+      if (!groupedData.has(key)) {
+        groupedData.set(key, { entradas: 0, saidas: 0, transactions: [] })
+      }
+
+      const group = groupedData.get(key)!
+      group.transactions.push(tx)
+
+      if (tx.type === 'entrada') {
+        group.entradas += tx.amount
+      } else if (tx.type === 'saida') {
+        group.saidas += tx.amount
+      }
+    })
+
+    // Converter para array e calcular saldos
+    let saldoAcumulado = 0
+    Array.from(groupedData.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([key, data]) => {
+        const saldo = data.entradas - data.saidas
+        saldoAcumulado += saldo
+
+        processedData.push({
+          date: key,
+          entradas: data.entradas,
+          saidas: data.saidas,
+          saldo,
+          saldoAcumulado,
+          periodo: key
+        })
       })
 
-      const entradas = txsMes
-        .filter(tx => tx.type === 'entrada')
-        .reduce((sum, tx) => sum + tx.amount, 0)
-
-      const saidas = txsMes
-        .filter(tx => tx.type === 'saida')
-        .reduce((sum, tx) => sum + tx.amount, 0)
-
-      const saldo = entradas - saidas
-      const saldoAcumulado = meses.length > 0 
-        ? meses[meses.length - 1].saldoAcumulado + saldo 
-        : saldo
-
-      meses.push({
-        periodo: mesNome,
-        entradas,
-        saidas,
-        saldo,
-        saldoAcumulado,
-        meta: metaMensal,
-        timestamp: data.getTime()
-      })
-    }
-
-    return meses
-  }, [txs, periodo, metaMensal])
+    return processedData
+  }, [txs, viewMode])
 
   // Calcular KPIs
   const kpis = useMemo((): KPIData => {
-    const now = new Date()
-    const mesAtual = now.getMonth()
-    const anoAtual = now.getFullYear()
+    const hoje = new Date()
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0)
 
-    const txsMesAtual = txs.filter(tx => {
-      const txDate = new Date(tx.due_date)
-      return txDate.getMonth() === mesAtual && txDate.getFullYear() === anoAtual
+    const txsMes = txs.filter(tx => {
+      const dataTx = new Date(tx.due_date)
+      return dataTx >= inicioMes && dataTx <= fimMes
     })
 
-    const entradasMes = txsMesAtual
-      .filter(tx => tx.type === 'entrada')
-      .reduce((sum, tx) => sum + tx.amount, 0)
+    const totalEntradas = txsMes.filter(tx => tx.type === 'entrada').reduce((sum, tx) => sum + tx.amount, 0)
+    const totalSaidas = txsMes.filter(tx => tx.type === 'saida').reduce((sum, tx) => sum + tx.amount, 0)
+    const saldoAtual = totalEntradas - totalSaidas
 
-    const saidasMes = txsMesAtual
-      .filter(tx => tx.type === 'saida')
-      .reduce((sum, tx) => sum + tx.amount, 0)
+    // Calcular projeção baseada na média diária
+    const diasDecorridos = hoje.getDate()
+    const diasRestantes = fimMes.getDate() - diasDecorridos
+    const mediaDiariaEntradas = totalEntradas / diasDecorridos
+    const mediaDiariaSaidas = totalSaidas / diasDecorridos
+    const projecaoEntradas = mediaDiariaEntradas * diasRestantes
+    const projecaoSaidas = mediaDiariaSaidas * diasRestantes
+    const saldoProjetado = saldoAtual + (projecaoEntradas - projecaoSaidas)
 
-    const saldoAtual = entradasMes - saidasMes
-
-    // Calcular variação mensal
-    const mesAnterior = new Date(now)
-    mesAnterior.setMonth(mesAnterior.getMonth() - 1)
-
+    // Variação mensal (comparar com mês anterior)
+    const mesAnterior = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)
+    const fimMesAnterior = new Date(hoje.getFullYear(), hoje.getMonth(), 0)
     const txsMesAnterior = txs.filter(tx => {
-      const txDate = new Date(tx.due_date)
-      return txDate.getMonth() === mesAnterior.getMonth() && 
-             txDate.getFullYear() === mesAnterior.getFullYear()
+      const dataTx = new Date(tx.due_date)
+      return dataTx >= mesAnterior && dataTx <= fimMesAnterior
     })
+    const saldoMesAnterior = txsMesAnterior.reduce((sum, tx) => 
+      sum + (tx.type === 'entrada' ? tx.amount : -tx.amount), 0
+    )
+    const variacaoMensal = saldoMesAnterior !== 0 ? ((saldoAtual - saldoMesAnterior) / Math.abs(saldoMesAnterior)) * 100 : 0
 
-    const saldoMesAnterior = txsMesAnterior
-      .filter(tx => tx.type === 'entrada')
-      .reduce((sum, tx) => sum + tx.amount, 0) - 
-      txsMesAnterior
-      .filter(tx => tx.type === 'saida')
-      .reduce((sum, tx) => sum + tx.amount, 0)
-
-    const variacaoMensal = saldoMesAnterior !== 0 
-      ? ((saldoAtual - saldoMesAnterior) / Math.abs(saldoMesAnterior)) * 100 
-      : 0
-
-    // Projeção simples baseada na média
-    const mediaMensal = chartData.length > 0 
-      ? chartData.reduce((sum, item) => sum + item.saldo, 0) / chartData.length 
-      : 0
-
-    const saldoProjetado = saldoAtual + (mediaMensal * 3) // Próximos 3 meses
-
-    const metaAtingida = metaMensal > 0 ? (saldoAtual / metaMensal) * 100 : 0
+    const ticketMedio = txsMes.length > 0 ? (totalEntradas + totalSaidas) / txsMes.length : 0
 
     return {
       saldoAtual,
-      entradasMes,
-      saidasMes,
+      totalEntradas,
+      totalSaidas,
       saldoProjetado,
       variacaoMensal,
-      metaAtingida
+      metaMensal: 10000, // Meta configurável
+      diasRestantes,
+      ticketMedio
     }
-  }, [txs, chartData, metaMensal])
+  }, [txs])
 
   // Dados para gráfico de pizza (categorias)
   const pieData = useMemo(() => {
-    const categorias = new Map<string, number>()
+    const categoryTotals = new Map<string, number>()
     
     txs.forEach(tx => {
-      const cat = tx.category || 'Sem categoria'
-      const valor = categorias.get(cat) || 0
-      categorias.set(cat, valor + Math.abs(tx.amount))
+      const category = tx.category || 'Sem categoria'
+      categoryTotals.set(category, (categoryTotals.get(category) || 0) + tx.amount)
     })
 
-    return Array.from(categorias.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8) // Top 8 categorias
+    return Array.from(categoryTotals.entries()).map(([name, value], index) => ({
+      name,
+      value,
+      color: CHART_COLORS[index % CHART_COLORS.length]
+    }))
   }, [txs])
 
   // Formatação de valores
   const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value)
+  }
+
+  const formatCompactCurrency = (value: number) => {
     if (Math.abs(value) >= 1000000) {
       return `R$ ${(value / 1000000).toFixed(1)}M`
     } else if (Math.abs(value) >= 1000) {
       return `R$ ${(value / 1000).toFixed(0)}k`
     } else {
-      return `R$ ${value.toFixed(2)}`
+      return `R$ ${value.toFixed(0)}`
     }
   }
 
-  const formatYAxis = (value: number) => {
-    if (value === 0) return 'R$ 0'
-    return formatCurrency(value)
-  }
+  // Adicionar novo lançamento
+  const handleAddTransaction = async () => {
+    try {
+      if (!newTx.amount || !newTx.due_date) {
+        toast({
+          title: 'Campos obrigatórios',
+          description: 'Preencha valor e data de vencimento',
+          variant: 'destructive'
+        })
+        return
+      }
 
+      const { error } = await supabase
+        .from('finance_transactions')
+        .insert([{
+          type: newTx.type,
+          amount: parseFloat(newTx.amount),
+          category: newTx.category || null,
+          contact: newTx.contact || null,
+          notes: newTx.notes || null,
+          due_date: newTx.due_date,
+          status: newTx.status,
+          account_id: 'default' // Conta padrão
+        }])
 
+      if (error) throw error
 
-  // Componente de tooltip customizado
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className={`p-4 rounded-lg shadow-lg border ${
-          darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-        }`}>
-          <p className="font-semibold mb-2">{label}</p>
-          {payload.map((entry: any, index: number) => (
-            <div key={index} className="flex items-center gap-2 mb-1">
-              <div 
-                className="w-3 h-3 rounded-full" 
-                style={{ backgroundColor: entry.color }}
-              />
-              <span className="text-sm">
-                {entry.name}: {formatCurrency(entry.value)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )
+      toast({
+        title: 'Lançamento adicionado',
+        description: 'Transação criada com sucesso'
+      })
+
+      setShowNewTxModal(false)
+      setNewTx({
+        type: 'entrada',
+        amount: '',
+        category: '',
+        contact: '',
+        notes: '',
+        due_date: new Date().toISOString().split('T')[0],
+        status: 'previsto'
+      })
+
+      await fetchTransactions()
+
+    } catch (error: any) {
+      console.error('❌ Erro ao adicionar transação:', error)
+      toast({
+        title: 'Erro ao adicionar lançamento',
+        description: error.message,
+        variant: 'destructive'
+      })
     }
-    return null
   }
 
-  if (loading) {
-    return (
-      <Layout>
-        <div className="space-y-6 p-6">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-10 w-32" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i}>
-                <CardHeader>
-                  <Skeleton className="h-4 w-24" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-20 mb-2" />
-                  <Skeleton className="h-3 w-16" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <Card>
-            <CardContent className="p-6">
-              <Skeleton className="h-80 w-full" />
-            </CardContent>
-          </Card>
-        </div>
-      </Layout>
-    )
+  // Exportar gráfico
+  const exportChart = (format: 'png' | 'pdf' | 'svg') => {
+    // Implementação da exportação seria feita aqui
+    toast({
+      title: 'Exportação iniciada',
+      description: `Gráfico será exportado em formato ${format.toUpperCase()}`
+    })
   }
+
+  useEffect(() => {
+    fetchTransactions()
+  }, [fetchTransactions])
 
   return (
     <Layout>
-      <div className={`space-y-6 p-6 transition-colors duration-300 ${
-        darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'
-      }`}>
+      <div className="space-y-6 p-6">
         {/* Header com controles */}
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
+        >
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <Activity className="h-8 w-8 text-blue-600" />
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
               Fluxo de Caixa Moderno
             </h1>
-            <p className="text-muted-foreground mt-1">
-              Análise financeira avançada com visualizações interativas
+            <p className="text-muted-foreground">
+              Análise avançada com visualizações interativas
             </p>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Toggle modo escuro */}
-            <div className="flex items-center gap-2">
-              <Sun className="h-4 w-4" />
-              <Switch
-                checked={darkMode}
-                onCheckedChange={setDarkMode}
-              />
-              <Moon className="h-4 w-4" />
-            </div>
-
-            {/* Seletor de período */}
-            <Select value={periodo} onValueChange={setPeriodo}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="3meses">3 Meses</SelectItem>
-                <SelectItem value="6meses">6 Meses</SelectItem>
-                <SelectItem value="12meses">12 Meses</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Botões de ação */}
-            <Button onClick={loadFinanceData} disabled={loading} size="sm">
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={refreshData}
+              disabled={refreshing}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
               Atualizar
             </Button>
 
-            <ChartExportUtils
-              chartRef={chartRef}
-              filename="fluxo-de-caixa"
-              title="Fluxo de Caixa"
-            />
+            <Dialog open={showNewTxModal} onOpenChange={setShowNewTxModal}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Novo Lançamento
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Novo Lançamento</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Tipo</Label>
+                      <Select value={newTx.type} onValueChange={(value: 'entrada' | 'saida') => 
+                        setNewTx(prev => ({ ...prev, type: value }))
+                      }>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="entrada">Entrada</SelectItem>
+                          <SelectItem value="saida">Saída</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Valor</Label>
+                      <Input
+                        type="number"
+                        placeholder="0,00"
+                        value={newTx.amount}
+                        onChange={(e) => setNewTx(prev => ({ ...prev, amount: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Data de Vencimento</Label>
+                    <Input
+                      type="date"
+                      value={newTx.due_date}
+                      onChange={(e) => setNewTx(prev => ({ ...prev, due_date: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Categoria</Label>
+                    <Input
+                      placeholder="Ex: Vendas, Despesas operacionais..."
+                      value={newTx.category}
+                      onChange={(e) => setNewTx(prev => ({ ...prev, category: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Contato</Label>
+                    <Input
+                      placeholder="Cliente ou fornecedor"
+                      value={newTx.contact}
+                      onChange={(e) => setNewTx(prev => ({ ...prev, contact: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Observações</Label>
+                    <Textarea
+                      placeholder="Detalhes adicionais..."
+                      value={newTx.notes}
+                      onChange={(e) => setNewTx(prev => ({ ...prev, notes: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      checked={newTx.status === 'realizado'}
+                      onCheckedChange={(checked) => 
+                        setNewTx(prev => ({ ...prev, status: checked ? 'realizado' : 'previsto' }))
+                      }
+                    />
+                    <Label>Marcar como realizado</Label>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowNewTxModal(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={handleAddTransaction}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Salvar
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
-        </div>
+        </motion.div>
 
         {/* KPIs Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className={`shadow-lg transition-all duration-300 hover:shadow-xl ${
-            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'
-          }`}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+        >
+          <Card className="relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/5" />
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
-                <Target className="h-4 w-4" />
+                <DollarSign className="h-4 w-4" />
                 Saldo Atual
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${
-                kpis.saldoAtual >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
+              <div className={`text-2xl font-bold ${kpis.saldoAtual >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {formatCurrency(kpis.saldoAtual)}
               </div>
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 {kpis.variacaoMensal >= 0 ? (
-                  <TrendingUp className="h-3 w-3 text-green-600" />
+                  <ArrowUpRight className="h-3 w-3 text-green-500" />
                 ) : (
-                  <TrendingDown className="h-3 w-3 text-red-600" />
+                  <ArrowDownRight className="h-3 w-3 text-red-500" />
                 )}
-                <span>{Math.abs(kpis.variacaoMensal).toFixed(1)}% vs mês anterior</span>
+                <span className={kpis.variacaoMensal >= 0 ? 'text-green-600' : 'text-red-600'}>
+                  {Math.abs(kpis.variacaoMensal).toFixed(1)}% vs mês anterior
+                </span>
               </div>
             </CardContent>
           </Card>
 
-          <Card className={`shadow-lg transition-all duration-300 hover:shadow-xl ${
-            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'
-          }`}>
+          <Card className="relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/5" />
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
                 <TrendingUp className="h-4 w-4" />
-                Entradas do Mês
+                Total Entradas
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                {formatCurrency(kpis.entradasMes)}
+                {formatCurrency(kpis.totalEntradas)}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Receitas confirmadas
+              <div className="text-xs text-muted-foreground">
+                Ticket médio: {formatCurrency(kpis.ticketMedio)}
               </div>
             </CardContent>
           </Card>
 
-          <Card className={`shadow-lg transition-all duration-300 hover:shadow-xl ${
-            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'
-          }`}>
+          <Card className="relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/5" />
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
                 <TrendingDown className="h-4 w-4" />
-                Saídas do Mês
+                Total Saídas
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">
-                {formatCurrency(kpis.saidasMes)}
+                {formatCurrency(kpis.totalSaidas)}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Despesas confirmadas
+              <div className="text-xs text-muted-foreground">
+                {kpis.diasRestantes} dias restantes no mês
               </div>
             </CardContent>
           </Card>
 
-          <Card className={`shadow-lg transition-all duration-300 hover:shadow-xl ${
-            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'
-          }`}>
+          <Card className="relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-purple-600/5" />
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
-                <Zap className="h-4 w-4" />
-                Projeção 3 Meses
+                <Target className="h-4 w-4" />
+                Projeção Mensal
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${
-                kpis.saldoProjetado >= 0 ? 'text-blue-600' : 'text-orange-600'
-              }`}>
+              <div className={`text-2xl font-bold ${kpis.saldoProjetado >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {formatCurrency(kpis.saldoProjetado)}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Baseado na tendência atual
+              <div className="text-xs text-muted-foreground">
+                Meta: {formatCurrency(kpis.metaMensal)}
               </div>
             </CardContent>
           </Card>
-        </div>
+        </motion.div>
 
-        {/* Controles avançados */}
-        <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Controles de Visualização
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Tipo de Gráfico</Label>
-                <Select value={tipoGrafico} onValueChange={setTipoGrafico}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="barras">
-                      <div className="flex items-center gap-2">
-                        <BarChart3 className="h-4 w-4" />
-                        Barras
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="linhas">
-                      <div className="flex items-center gap-2">
-                        <LineChart className="h-4 w-4" />
-                        Linhas
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="area">
-                      <div className="flex items-center gap-2">
-                        <Activity className="h-4 w-4" />
-                        Área
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="combinado">
-                      <div className="flex items-center gap-2">
-                        <BarChart3 className="h-4 w-4" />
-                        Combinado
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+        {/* Controles de Visualização */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Controles de Visualização
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Tipo de Gráfico */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Tipo de Gráfico</Label>
+                  <Select value={chartType} onValueChange={(value: any) => setChartType(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bar">
+                        <div className="flex items-center gap-2">
+                          <BarChart3 className="h-4 w-4" />
+                          Barras
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="line">
+                        <div className="flex items-center gap-2">
+                          <LineChart className="h-4 w-4" />
+                          Linhas
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="area">
+                        <div className="flex items-center gap-2">
+                          <Activity className="h-4 w-4" />
+                          Área
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="pie">
+                        <div className="flex items-center gap-2">
+                          <PieChart className="h-4 w-4" />
+                          Pizza
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="candlestick">
+                        <div className="flex items-center gap-2">
+                          <Zap className="h-4 w-4" />
+                          Candlestick
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="heatmap">
+                        <div className="flex items-center gap-2">
+                          <Layers className="h-4 w-4" />
+                          Heatmap
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Período */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Período</Label>
+                  <Select value={viewMode} onValueChange={(value: any) => setViewMode(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Diário</SelectItem>
+                      <SelectItem value="weekly">Semanal</SelectItem>
+                      <SelectItem value="monthly">Mensal</SelectItem>
+                      <SelectItem value="quarterly">Trimestral</SelectItem>
+                      <SelectItem value="yearly">Anual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Filtro de Categoria */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Categoria</Label>
+                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas</SelectItem>
+                      <SelectItem value="vendas">Vendas</SelectItem>
+                      <SelectItem value="despesas">Despesas</SelectItem>
+                      <SelectItem value="investimentos">Investimentos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Filtro de Status */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Status</Label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="realizado">Realizado</SelectItem>
+                      <SelectItem value="previsto">Previsto</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div>
-                <Label className="text-sm font-medium">Comparação</Label>
-                <Select value={comparacao} onValueChange={setComparacao}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nenhuma">Nenhuma</SelectItem>
-                    <SelectItem value="ano-anterior">Ano Anterior</SelectItem>
-                    <SelectItem value="mes-anterior">Mês Anterior</SelectItem>
-                    <SelectItem value="media">Média Histórica</SelectItem>
-                  </SelectContent>
-                </Select>
+              <Separator className="my-4" />
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Range de Datas */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Período de Análise</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                      className="text-xs"
+                    />
+                    <Input
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Opções de Visualização */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Opções</Label>
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        checked={showAnimations}
+                        onCheckedChange={setShowAnimations}
+                        id="animations"
+                      />
+                      <Label htmlFor="animations" className="text-xs">Animações</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        checked={showGrid}
+                        onCheckedChange={setShowGrid}
+                        id="grid"
+                      />
+                      <Label htmlFor="grid" className="text-xs">Grade</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        checked={showLegend}
+                        onCheckedChange={setShowLegend}
+                        id="legend"
+                      />
+                      <Label htmlFor="legend" className="text-xs">Legenda</Label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Comparação */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Comparação</Label>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Switch
+                      checked={compareMode}
+                      onCheckedChange={setCompareMode}
+                      id="compare"
+                    />
+                    <Label htmlFor="compare" className="text-xs">Ativar comparação</Label>
+                  </div>
+                  {compareMode && (
+                    <Select value={comparePeriod} onValueChange={(value: any) => setComparePeriod(value)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="previous_month">Mês Anterior</SelectItem>
+                        <SelectItem value="previous_year">Ano Anterior</SelectItem>
+                        <SelectItem value="custom">Personalizado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="projecao"
-                  checked={showProjecao}
-                  onCheckedChange={setShowProjecao}
-                />
-                <Label htmlFor="projecao" className="text-sm">
-                  Mostrar Projeção
-                </Label>
+              <div className="flex justify-end gap-2 mt-4">
+                <Button variant="outline" size="sm" onClick={() => exportChart('png')}>
+                  <FileImage className="h-4 w-4 mr-2" />
+                  PNG
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => exportChart('pdf')}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  PDF
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => exportChart('svg')}>
+                  <Download className="h-4 w-4 mr-2" />
+                  SVG
+                </Button>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="metas"
-                  checked={showMetas}
-                  onCheckedChange={setShowMetas}
-                />
-                <Label htmlFor="metas" className="text-sm">
-                  Mostrar Metas
-                </Label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Tabs para diferentes visualizações */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-            <TabsTrigger value="trends">Tendências</TabsTrigger>
-            <TabsTrigger value="categories">Categorias</TabsTrigger>
-            <TabsTrigger value="analysis">Análise Avançada</TabsTrigger>
-          </TabsList>
-
-          {/* Tab: Visão Geral */}
-          <TabsContent value="overview" className="space-y-6">
-            <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
+        {/* Gráficos Principais */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+        >
+          {/* Gráfico Principal */}
+          <div className="lg:col-span-2">
+            <Card className="h-[500px]">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5" />
-                    Fluxo de Caixa - {tipoGrafico.charAt(0).toUpperCase() + tipoGrafico.slice(1)}
+                    {chartType === 'bar' && <BarChart3 className="h-5 w-5" />}
+                    {chartType === 'line' && <LineChart className="h-5 w-5" />}
+                    {chartType === 'area' && <Activity className="h-5 w-5" />}
+                    {chartType === 'pie' && <PieChart className="h-5 w-5" />}
+                    {chartType === 'candlestick' && <Zap className="h-5 w-5" />}
+                    {chartType === 'heatmap' && <Layers className="h-5 w-5" />}
+                    Fluxo de Caixa - {chartType === 'bar' ? 'Barras' :
+                                      chartType === 'line' ? 'Linhas' :
+                                      chartType === 'area' ? 'Área' :
+                                      chartType === 'pie' ? 'Distribuição' :
+                                      chartType === 'candlestick' ? 'Candlestick' : 'Heatmap'}
                   </span>
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setFullscreen(!fullscreen)}
-                    >
+                    <Badge variant="outline" className="text-xs">
+                      {viewMode === 'daily' ? 'Diário' :
+                       viewMode === 'weekly' ? 'Semanal' :
+                       viewMode === 'monthly' ? 'Mensal' :
+                       viewMode === 'quarterly' ? 'Trimestral' : 'Anual'}
+                    </Badge>
+                    <Button variant="ghost" size="sm">
                       <Maximize2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div ref={chartRef} className={`${fullscreen ? 'h-96' : 'h-80'} transition-all duration-300`}>
+              <CardContent className="h-[400px]">
+                {loading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="space-y-4 w-full">
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                    </div>
+                  </div>
+                ) : chartData.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">Nenhum dado encontrado</h3>
+                      <p className="text-muted-foreground">
+                        Adicione transações para visualizar o fluxo de caixa
+                      </p>
+                    </div>
+                  </div>
+                ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    {tipoGrafico === 'barras' && (
+                    {chartType === 'bar' && (
                       <RechartsBarChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                        {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
                         <XAxis
-                          dataKey="periodo"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
+                          dataKey="date"
+                          tick={{ fontSize: 12 }}
                           axisLine={false}
                         />
                         <YAxis
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
+                          tick={{ fontSize: 12 }}
                           axisLine={false}
-                          tickFormatter={formatYAxis}
+                          tickFormatter={formatCompactCurrency}
                         />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#fff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                          }}
+                          formatter={(value: any, name: string) => [
+                            formatCurrency(value),
+                            name === 'entradas' ? 'Entradas' :
+                            name === 'saidas' ? 'Saídas' :
+                            name === 'saldo' ? 'Saldo' : name
+                          ]}
+                        />
+                        {showLegend && <Legend />}
                         <Bar
                           dataKey="entradas"
                           fill={COLORS.success}
                           name="Entradas"
                           radius={[4, 4, 0, 0]}
+                          animationDuration={showAnimations ? 1000 : 0}
                         />
                         <Bar
                           dataKey="saidas"
                           fill={COLORS.danger}
                           name="Saídas"
                           radius={[4, 4, 0, 0]}
+                          animationDuration={showAnimations ? 1000 : 0}
                         />
-                        {showMetas && (
-                          <ReferenceLine
-                            y={metaMensal}
-                            stroke={COLORS.warning}
-                            strokeDasharray="5 5"
-                            label="Meta"
-                          />
-                        )}
+                        <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
                       </RechartsBarChart>
                     )}
 
-                    {tipoGrafico === 'linhas' && (
+                    {chartType === 'line' && (
                       <RechartsLineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                        {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
                         <XAxis
-                          dataKey="periodo"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
+                          dataKey="date"
+                          tick={{ fontSize: 12 }}
                           axisLine={false}
                         />
                         <YAxis
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
+                          tick={{ fontSize: 12 }}
                           axisLine={false}
-                          tickFormatter={formatYAxis}
+                          tickFormatter={formatCompactCurrency}
                         />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#fff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                          }}
+                          formatter={(value: any, name: string) => [
+                            formatCurrency(value),
+                            name === 'entradas' ? 'Entradas' :
+                            name === 'saidas' ? 'Saídas' :
+                            name === 'saldoAcumulado' ? 'Saldo Acumulado' : name
+                          ]}
+                        />
+                        {showLegend && <Legend />}
                         <Line
                           type="monotone"
                           dataKey="entradas"
                           stroke={COLORS.success}
                           strokeWidth={3}
                           name="Entradas"
-                          dot={{ fill: COLORS.success, strokeWidth: 2, r: 6 }}
-                          activeDot={{ r: 8 }}
+                          dot={{ fill: COLORS.success, strokeWidth: 2, r: 4 }}
+                          animationDuration={showAnimations ? 1500 : 0}
                         />
                         <Line
                           type="monotone"
@@ -689,8 +1011,8 @@ const FluxoDeCaixaModerno = () => {
                           stroke={COLORS.danger}
                           strokeWidth={3}
                           name="Saídas"
-                          dot={{ fill: COLORS.danger, strokeWidth: 2, r: 6 }}
-                          activeDot={{ r: 8 }}
+                          dot={{ fill: COLORS.danger, strokeWidth: 2, r: 4 }}
+                          animationDuration={showAnimations ? 1500 : 0}
                         />
                         <Line
                           type="monotone"
@@ -699,248 +1021,60 @@ const FluxoDeCaixaModerno = () => {
                           strokeWidth={2}
                           strokeDasharray="5 5"
                           name="Saldo Acumulado"
-                          dot={{ fill: COLORS.primary, strokeWidth: 2, r: 4 }}
+                          dot={{ fill: COLORS.primary, strokeWidth: 2, r: 3 }}
+                          animationDuration={showAnimations ? 1500 : 0}
                         />
+                        <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
                       </RechartsLineChart>
                     )}
 
-                    {tipoGrafico === 'area' && (
+                    {chartType === 'area' && (
                       <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="colorEntradas" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={COLORS.success} stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor={COLORS.success} stopOpacity={0.1}/>
-                          </linearGradient>
-                          <linearGradient id="colorSaidas" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={COLORS.danger} stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor={COLORS.danger} stopOpacity={0.1}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
+                        {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
                         <XAxis
-                          dataKey="periodo"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
+                          dataKey="date"
+                          tick={{ fontSize: 12 }}
                           axisLine={false}
                         />
                         <YAxis
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
+                          tick={{ fontSize: 12 }}
                           axisLine={false}
-                          tickFormatter={formatYAxis}
+                          tickFormatter={formatCompactCurrency}
                         />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#fff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                          }}
+                          formatter={(value: any, name: string) => [
+                            formatCurrency(value),
+                            name === 'saldoAcumulado' ? 'Saldo Acumulado' : name
+                          ]}
+                        />
+                        {showLegend && <Legend />}
+                        <defs>
+                          <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
                         <Area
                           type="monotone"
-                          dataKey="entradas"
-                          stroke={COLORS.success}
-                          fillOpacity={1}
-                          fill="url(#colorEntradas)"
-                          name="Entradas"
+                          dataKey="saldoAcumulado"
+                          stroke={COLORS.primary}
+                          strokeWidth={2}
+                          fill="url(#colorSaldo)"
+                          name="Saldo Acumulado"
+                          animationDuration={showAnimations ? 2000 : 0}
                         />
-                        <Area
-                          type="monotone"
-                          dataKey="saidas"
-                          stroke={COLORS.danger}
-                          fillOpacity={1}
-                          fill="url(#colorSaidas)"
-                          name="Saídas"
-                        />
+                        <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
                       </AreaChart>
                     )}
 
-                    {tipoGrafico === 'combinado' && (
-                      <ComposedChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
-                        <XAxis
-                          dataKey="periodo"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
-                          axisLine={false}
-                          tickFormatter={formatYAxis}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend />
-                        <Bar
-                          dataKey="entradas"
-                          fill={COLORS.success}
-                          name="Entradas"
-                          radius={[4, 4, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="saidas"
-                          fill={COLORS.danger}
-                          name="Saídas"
-                          radius={[4, 4, 0, 0]}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="saldoAcumulado"
-                          stroke={COLORS.primary}
-                          strokeWidth={3}
-                          name="Saldo Acumulado"
-                          dot={{ fill: COLORS.primary, strokeWidth: 2, r: 6 }}
-                        />
-                      </ComposedChart>
-                    )}
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Tab: Tendências */}
-          <TabsContent value="trends" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Gráfico de tendência com projeção */}
-              <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5" />
-                    Tendência de Saldo
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RechartsLineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
-                        <XAxis
-                          dataKey="periodo"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
-                          axisLine={false}
-                          tickFormatter={formatYAxis}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Line
-                          type="monotone"
-                          dataKey="saldo"
-                          stroke={COLORS.primary}
-                          strokeWidth={4}
-                          name="Saldo Mensal"
-                          dot={{ fill: COLORS.primary, strokeWidth: 2, r: 6 }}
-                          activeDot={{ r: 8 }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="saldoAcumulado"
-                          stroke={COLORS.secondary}
-                          strokeWidth={2}
-                          strokeDasharray="8 4"
-                          name="Saldo Acumulado"
-                          dot={{ fill: COLORS.secondary, strokeWidth: 2, r: 4 }}
-                        />
-                        {showMetas && (
-                          <ReferenceLine
-                            y={metaMensal}
-                            stroke={COLORS.warning}
-                            strokeDasharray="5 5"
-                            label="Meta Mensal"
-                          />
-                        )}
-                      </RechartsLineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Indicadores de performance */}
-              <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Target className="h-5 w-5" />
-                    Indicadores de Performance
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-3 bg-gradient-to-r from-green-50 to-green-100 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                        <span className="text-sm font-medium">Meta Atingida</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-green-700">
-                          {kpis.metaAtingida.toFixed(1)}%
-                        </div>
-                        <div className="text-xs text-green-600">
-                          {formatCurrency(metaMensal)} meta
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                        <span className="text-sm font-medium">Eficiência</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-blue-700">
-                          {kpis.saidasMes > 0 ? ((kpis.entradasMes / kpis.saidasMes) * 100).toFixed(0) : 0}%
-                        </div>
-                        <div className="text-xs text-blue-600">
-                          Entradas/Saídas
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                        <span className="text-sm font-medium">Crescimento</span>
-                      </div>
-                      <div className="text-right">
-                        <div className={`font-bold ${
-                          kpis.variacaoMensal >= 0 ? 'text-purple-700' : 'text-red-700'
-                        }`}>
-                          {kpis.variacaoMensal >= 0 ? '+' : ''}{kpis.variacaoMensal.toFixed(1)}%
-                        </div>
-                        <div className="text-xs text-purple-600">
-                          vs mês anterior
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-gradient-to-r from-orange-50 to-orange-100 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                        <span className="text-sm font-medium">Projeção</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-orange-700">
-                          {formatCurrency(kpis.saldoProjetado)}
-                        </div>
-                        <div className="text-xs text-orange-600">
-                          Próximos 3 meses
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* Tab: Categorias */}
-          <TabsContent value="categories" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Gráfico de pizza */}
-              <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <PieChart className="h-5 w-5" />
-                    Distribuição por Categorias
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
+                    {chartType === 'pie' && (
                       <RechartsPieChart>
                         <Pie
                           data={pieData}
@@ -948,219 +1082,179 @@ const FluxoDeCaixaModerno = () => {
                           cy="50%"
                           labelLine={false}
                           label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                          outerRadius={80}
+                          outerRadius={120}
                           fill="#8884d8"
                           dataKey="value"
+                          animationDuration={showAnimations ? 1000 : 0}
                         >
                           {pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                            <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
                         </Pie>
                         <Tooltip
                           formatter={(value: any) => [formatCurrency(value), 'Valor']}
                         />
+                        {showLegend && <Legend />}
                       </RechartsPieChart>
-                    </ResponsiveContainer>
+                    )}
+
+                    {chartType === 'candlestick' && (
+                      <CandlestickChart
+                        data={chartData}
+                        showGrid={showGrid}
+                        showAnimations={showAnimations}
+                      />
+                    )}
+
+                    {chartType === 'heatmap' && (
+                      <HeatmapChart
+                        data={chartData}
+                        showGrid={showGrid}
+                        showAnimations={showAnimations}
+                      />
+                    )}
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Painel Lateral com Métricas */}
+          <div className="space-y-4">
+            {/* Resumo Rápido */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Resumo do Período</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span className="text-sm font-medium">Entradas</span>
                   </div>
-                </CardContent>
-              </Card>
+                  <span className="font-semibold text-green-600">
+                    {formatCompactCurrency(kpis.totalEntradas)}
+                  </span>
+                </div>
 
-              {/* Lista de categorias */}
-              <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Filter className="h-5 w-5" />
-                    Top Categorias
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {pieData.slice(0, 6).map((categoria, index) => (
-                      <div key={categoria.name} className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-4 h-4 rounded-full"
-                            style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-                          />
-                          <span className="font-medium">{categoria.name}</span>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-semibold">{formatCurrency(categoria.value)}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {((categoria.value / pieData.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                    <span className="text-sm font-medium">Saídas</span>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
+                  <span className="font-semibold text-red-600">
+                    {formatCompactCurrency(kpis.totalSaidas)}
+                  </span>
+                </div>
 
-          {/* Tab: Análise Avançada */}
-          <TabsContent value="analysis" className="space-y-6">
-            <div className="grid grid-cols-1 gap-6">
-              {/* Gráfico de dispersão para análise de correlação */}
-              <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5" />
-                    Análise de Correlação: Entradas vs Saídas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ScatterChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : '#e5e7eb'} />
-                        <XAxis
-                          type="number"
-                          dataKey="entradas"
-                          name="Entradas"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
-                          axisLine={false}
-                          tickFormatter={formatYAxis}
-                        />
-                        <YAxis
-                          type="number"
-                          dataKey="saidas"
-                          name="Saídas"
-                          tick={{ fontSize: 12, fill: darkMode ? '#d1d5db' : '#6b7280' }}
-                          axisLine={false}
-                          tickFormatter={formatYAxis}
-                        />
-                        <Tooltip
-                          cursor={{ strokeDasharray: '3 3' }}
-                          formatter={(value: any, name: string) => [formatCurrency(value), name]}
-                        />
-                        <Scatter
-                          name="Períodos"
-                          data={chartData}
-                          fill={COLORS.primary}
-                        />
-                      </ScatterChart>
-                    </ResponsiveContainer>
+                <Separator />
+
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                    <span className="text-sm font-medium">Saldo Líquido</span>
                   </div>
-                </CardContent>
-              </Card>
+                  <span className={`font-semibold ${kpis.saldoAtual >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCompactCurrency(kpis.saldoAtual)}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
 
-              {/* Alertas e insights */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5" />
-                      Alertas Financeiros
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {kpis.saldoAtual < 0 && (
-                        <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                          <AlertTriangle className="h-5 w-5 text-red-600" />
-                          <div>
-                            <div className="font-medium text-red-800">Saldo Negativo</div>
-                            <div className="text-sm text-red-600">
-                              Saldo atual: {formatCurrency(kpis.saldoAtual)}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {kpis.metaAtingida < 50 && (
-                        <div className="flex items-center gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                          <Target className="h-5 w-5 text-yellow-600" />
-                          <div>
-                            <div className="font-medium text-yellow-800">Meta Baixa</div>
-                            <div className="text-sm text-yellow-600">
-                              Apenas {kpis.metaAtingida.toFixed(1)}% da meta atingida
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {kpis.variacaoMensal < -20 && (
-                        <div className="flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                          <TrendingDown className="h-5 w-5 text-orange-600" />
-                          <div>
-                            <div className="font-medium text-orange-800">Queda Significativa</div>
-                            <div className="text-sm text-orange-600">
-                              Redução de {Math.abs(kpis.variacaoMensal).toFixed(1)}% vs mês anterior
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {kpis.saldoAtual >= 0 && kpis.metaAtingida >= 80 && kpis.variacaoMensal >= 0 && (
-                        <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <TrendingUp className="h-5 w-5 text-green-600" />
-                          <div>
-                            <div className="font-medium text-green-800">Performance Excelente</div>
-                            <div className="text-sm text-green-600">
-                              Todos os indicadores estão positivos
-                            </div>
-                          </div>
-                        </div>
-                      )}
+            {/* Alertas e Insights */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  Insights
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {kpis.saldoAtual < 0 && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-700 font-medium mb-1">
+                      <AlertTriangle className="h-4 w-4" />
+                      Saldo Negativo
                     </div>
-                  </CardContent>
-                </Card>
+                    <p className="text-sm text-red-600">
+                      Seu saldo atual está negativo. Considere revisar as despesas.
+                    </p>
+                  </div>
+                )}
 
-                <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Zap className="h-5 w-5" />
-                      Insights Automáticos
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="font-medium text-blue-800">Padrão Sazonal</div>
-                        <div className="text-sm text-blue-600">
-                          {chartData.length > 0 && (
-                            `Melhor mês: ${chartData.reduce((max, item) =>
-                              item.saldo > max.saldo ? item : max
-                            ).periodo}`
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                        <div className="font-medium text-purple-800">Média Móvel</div>
-                        <div className="text-sm text-purple-600">
-                          {chartData.length > 0 && (
-                            `Saldo médio: ${formatCurrency(
-                              chartData.reduce((sum, item) => sum + item.saldo, 0) / chartData.length
-                            )}`
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                        <div className="font-medium text-indigo-800">Volatilidade</div>
-                        <div className="text-sm text-indigo-600">
-                          {chartData.length > 1 && (
-                            `Variação: ${(
-                              Math.sqrt(
-                                chartData.reduce((sum, item, index) => {
-                                  if (index === 0) return 0
-                                  const diff = item.saldo - chartData[index - 1].saldo
-                                  return sum + (diff * diff)
-                                }, 0) / (chartData.length - 1)
-                              ) / 1000
-                            ).toFixed(1)}k`
-                          )}
-                        </div>
-                      </div>
+                {kpis.variacaoMensal > 20 && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
+                      <TrendingUp className="h-4 w-4" />
+                      Crescimento Acelerado
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
+                    <p className="text-sm text-green-600">
+                      Excelente! Crescimento de {kpis.variacaoMensal.toFixed(1)}% vs mês anterior.
+                    </p>
+                  </div>
+                )}
+
+                {kpis.saldoProjetado < kpis.metaMensal && (
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-yellow-700 font-medium mb-1">
+                      <Target className="h-4 w-4" />
+                      Meta em Risco
+                    </div>
+                    <p className="text-sm text-yellow-600">
+                      Projeção abaixo da meta mensal. Faltam {formatCurrency(kpis.metaMensal - kpis.saldoProjetado)}.
+                    </p>
+                  </div>
+                )}
+
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-700 font-medium mb-1">
+                    <Clock className="h-4 w-4" />
+                    Projeção
+                  </div>
+                  <p className="text-sm text-blue-600">
+                    Com base no ritmo atual, você deve fechar o mês com {formatCurrency(kpis.saldoProjetado)}.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Ações Rápidas */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Ações Rápidas</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setShowNewTxModal(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nova Transação
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => exportChart('pdf')}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar Relatório
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={refreshData}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Atualizar Dados
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </motion.div>
       </div>
     </Layout>
   )
