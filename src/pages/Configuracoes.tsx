@@ -314,19 +314,33 @@ const Configuracoes = () => {
         setCompanyInfo(companyData as CompanyInfo)
 
         // Verificar se o usuário é administrador
-        if (companyData?.id) {
-          const { data: adminCheck } = await supabase
+        if (companyData?.id && profile?.id) {
+          console.log('🔍 Verificando permissões de admin para:', {
+            user_id: profile.id,
+            company_id: companyData.id
+          })
+
+          const { data: adminCheck, error: adminError } = await supabase
             .from('user_companies')
-            .select('role')
-            .eq('user_id', profile?.id)
+            .select('role, is_active')
+            .eq('user_id', profile.id)
             .eq('company_id', companyData.id)
             .eq('is_active', true)
             .single()
 
-          setIsUserAdmin(adminCheck?.role === 'administrador')
+          console.log('📊 Resultado da verificação:', { adminCheck, adminError })
+
+          // Verificar múltiplas condições para admin
+          const isAdmin = adminCheck?.role === 'administrador' ||
+                         adminCheck?.role === 'admin' ||
+                         profile.user_type === 'admin' ||
+                         profile.role === 'admin'
+
+          console.log('🛡️ Status de admin:', isAdmin)
+          setIsUserAdmin(isAdmin)
 
           // Carregar usuários da empresa (apenas se for admin)
-          if (adminCheck?.role === 'administrador') {
+          if (isAdmin) {
             const { data: usersData, error: usersError } = await supabase
               .from('user_companies')
               .select(`

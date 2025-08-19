@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -105,6 +106,19 @@ const ContasPagar = () => {
   // Estados para ações em lote
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set())
   const [showBulkActions, setShowBulkActions] = useState(false)
+
+  // Estado para confirmação de aprovação
+  const [approvalConfirm, setApprovalConfirm] = useState<{
+    isOpen: boolean
+    account: AccountPayable | null
+    isBulk: boolean
+    accountIds: string[]
+  }>({
+    isOpen: false,
+    account: null,
+    isBulk: false,
+    accountIds: []
+  })
 
   // Estados de paginação
   const [currentPage, setCurrentPage] = useState(1)
@@ -383,30 +397,47 @@ const ContasPagar = () => {
     }
   }
 
-  // Aprovar conta
-  const handleApproveAccount = async (accountId: string) => {
+  // Abrir confirmação de aprovação
+  const openApprovalConfirm = (account: AccountPayable) => {
+    setApprovalConfirm({
+      isOpen: true,
+      account,
+      isBulk: false,
+      accountIds: []
+    })
+  }
+
+  // Aprovar conta (após confirmação)
+  const handleApproveAccount = async (accountId: string, notes?: string) => {
     try {
       const { error } = await supabase
         .from('accounts_payable')
-        .update({ status: 'approved' })
+        .update({
+          status: 'approved',
+          updated_at: new Date().toISOString()
+        })
         .eq('id', accountId)
 
       if (error) throw error
 
-      // Registrar aprovação
+      // Registrar aprovação com log detalhado
       await supabase
         .from('payment_approvals')
         .insert([{
           account_payable_id: accountId,
           approved_by: profile?.id,
-          notes: 'Aprovação manual'
+          notes: notes || 'Aprovação manual',
+          approved_at: new Date().toISOString()
         }])
 
       setAccounts(prev => prev.map(a =>
         a.id === accountId ? { ...a, status: 'approved' as const } : a
       ))
 
-      toast({ title: 'Conta aprovada com sucesso' })
+      toast({
+        title: 'Conta aprovada com sucesso',
+        description: `Conta aprovada e registrada no log de auditoria`
+      })
 
     } catch (error: any) {
       toast({
@@ -452,21 +483,50 @@ const ContasPagar = () => {
   }
 
   // Ações em lote
-  const handleBulkApprove = async () => {
+  // Abrir confirmação de aprovação em lote
+  const openBulkApprovalConfirm = () => {
+    const ids = Array.from(selectedAccounts)
+    setApprovalConfirm({
+      isOpen: true,
+      account: null,
+      isBulk: true,
+      accountIds: ids
+    })
+  }
+
+  const handleBulkApprove = async (accountIds?: string[], notes?: string) => {
     try {
-      const ids = Array.from(selectedAccounts)
+      const ids = accountIds || Array.from(selectedAccounts)
       const { error } = await supabase
         .from('accounts_payable')
-        .update({ status: 'approved' })
+        .update({
+          status: 'approved',
+          updated_at: new Date().toISOString()
+        })
         .in('id', ids)
 
       if (error) throw error
+
+      // Registrar aprovações individuais no log
+      const approvals = ids.map(id => ({
+        account_payable_id: id,
+        approved_by: profile?.id,
+        notes: notes || 'Aprovação em lote',
+        approved_at: new Date().toISOString()
+      }))
+
+      await supabase
+        .from('payment_approvals')
+        .insert(approvals)
 
       setAccounts(prev => prev.map(a =>
         ids.includes(a.id) ? { ...a, status: 'approved' as const } : a
       ))
       setSelectedAccounts(new Set())
-      toast({ title: `${ids.length} conta(s) aprovada(s)` })
+      toast({
+        title: `${ids.length} conta(s) aprovada(s)`,
+        description: `Aprovações registradas no log de auditoria`
+      })
 
     } catch (error: any) {
       toast({
@@ -703,7 +763,7 @@ const ContasPagar = () => {
                       {selectedAccounts.size} conta(s) selecionada(s)
                     </span>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" onClick={handleBulkApprove}>
+                      <Button size="sm" variant="outline" onClick={openBulkApprovalConfirm}>
                         <Check className="h-4 w-4 mr-1" />
                         Aprovar Selecionados
                       </Button>
@@ -882,7 +942,7 @@ const ContasPagar = () => {
                                 <Edit className="h-3 w-3" />
                               </Button>
                               {account.status === 'pending' && account.amount > 1000 && (
-                                <Button size="sm" variant="outline" onClick={() => handleApproveAccount(account.id)}>
+                                <Button size="sm" variant="outline" onClick={() => openApprovalConfirm(account)}>
                                   <Check className="h-3 w-3" />
                                 </Button>
                               )}
@@ -1185,6 +1245,72 @@ const ContasPagar = () => {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Modal de Confirmação de Aprovação */}
+        <AlertDialog open={approvalConfirm.isOpen} onOpenChange={(open) =>
+          setApprovalConfirm(prev => ({ ...prev, isOpen: open }))
+        }>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <Check className="h-5 w-5 text-green-600" />
+                Confirmar Aprovação
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {approvalConfirm.isBulk ? (
+                  <>
+                    Você está prestes a aprovar <strong>{approvalConfirm.accountIds.length} conta(s)</strong> a pagar.
+                    <br />
+                    Esta ação será registrada no log de auditoria e não pode ser desfeita.
+                  </>
+                ) : (
+                  <>
+                    Você está prestes a aprovar a conta:
+                    <br />
+                    <strong>{approvalConfirm.account?.description}</strong>
+                    <br />
+                    Valor: <strong>{approvalConfirm.account?.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+                    <br />
+                    Esta ação será registrada no log de auditoria e não pode ser desfeita.
+                  </>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-4">
+              <label className="text-sm font-medium">Observações (opcional):</label>
+              <Textarea
+                placeholder="Adicione observações sobre esta aprovação..."
+                className="mt-2"
+                id="approval-notes"
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const notes = (document.getElementById('approval-notes') as HTMLTextAreaElement)?.value
+
+                  if (approvalConfirm.isBulk) {
+                    handleBulkApprove(approvalConfirm.accountIds, notes)
+                  } else if (approvalConfirm.account) {
+                    handleApproveAccount(approvalConfirm.account.id, notes)
+                  }
+
+                  setApprovalConfirm({
+                    isOpen: false,
+                    account: null,
+                    isBulk: false,
+                    accountIds: []
+                  })
+                }}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Check className="h-4 w-4 mr-2" />
+                Confirmar Aprovação
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </Layout>
   )

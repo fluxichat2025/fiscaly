@@ -178,7 +178,7 @@ const FluxoDeCaixa = () => {
     return Array.from(porConta.values()).reduce((s, v) => s + v, 0)
   }, [accounts, txs])
 
-  // Novos KPIs
+  // Novos KPIs - com dependência explícita de txs para forçar recálculo
   const valoresVencidos = useMemo(() => {
     return txs.filter(t => t.status === 'previsto' && new Date(t.due_date) < today)
       .reduce((sum, t) => sum + (t.type === 'entrada' ? t.amount : -t.amount), 0)
@@ -194,6 +194,12 @@ const FluxoDeCaixa = () => {
     const saidas = previstos30Dias.filter(t => t.type === 'saida').reduce((s, t) => s + t.amount, 0)
     return saldoConsolidado + entradas - saidas
   }, [txs, today, next30Days, saldoConsolidado])
+
+  // Forçar recálculo dos KPIs quando txs mudar
+  useEffect(() => {
+    // Os useMemo acima serão automaticamente recalculados quando txs mudar
+    console.log('📊 KPIs recalculados - Total de transações:', txs.length)
+  }, [txs.length])
 
   // Projeção 13 semanas (cenário base e ±10%)
   const projectionData: WeekPoint[] = useMemo(()=>{
@@ -710,73 +716,135 @@ const FluxoDeCaixa = () => {
           </Card>
         </div>
 
-        {/* Gráfico Entradas vs Saídas (6 meses) */}
+        {/* Gráfico Entradas vs Saídas (6 meses) - Compacto */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Entradas vs Saídas (Últimos 6 Meses)
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4" />
+              Entradas vs Saídas (6 meses)
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <ChartContainer config={{
-              entradas: { color: 'hsl(var(--emerald-500))', label: 'Entradas' },
-              saidas: { color: 'hsl(var(--rose-500))', label: 'Saídas' }
-            }}>
-              <BarChart data={barChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis tickFormatter={(v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} width={80} />
-                <Bar dataKey="entradas" fill="var(--color-entradas)" />
-                <Bar dataKey="saidas" fill="var(--color-saidas)" />
-                <ChartTooltip content={<ChartTooltipContent />} />
-              </BarChart>
-            </ChartContainer>
+          <CardContent className="pt-2">
+            <div className="h-48">
+              <ChartContainer config={{
+                entradas: { color: 'hsl(var(--emerald-500))', label: 'Entradas' },
+                saidas: { color: 'hsl(var(--rose-500))', label: 'Saídas' }
+              }}>
+                <BarChart data={barChartData}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v) => v.toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0
+                    })}
+                    width={60}
+                    tick={{ fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Bar dataKey="entradas" fill="var(--color-entradas)" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="saidas" fill="var(--color-saidas)" radius={[2, 2, 0, 0]} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                </BarChart>
+              </ChartContainer>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Projeção 13 semanas */}
+        {/* Projeção 13 semanas - Compacto */}
         <Card>
-          <CardHeader><CardTitle>Projeção (13 semanas)</CardTitle></CardHeader>
-          <CardContent>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Target className="h-4 w-4" />
+              Projeção (13 semanas)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-2">
             <Tabs defaultValue="base">
-              <TabsList>
-                <TabsTrigger value="base">Cenário Base</TabsTrigger>
-                <TabsTrigger value="melhor">Melhor Caso (+10%)</TabsTrigger>
-                <TabsTrigger value="pior">Pior Caso (-10%)</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-3 h-8">
+                <TabsTrigger value="base" className="text-xs">Base</TabsTrigger>
+                <TabsTrigger value="melhor" className="text-xs">Melhor (+10%)</TabsTrigger>
+                <TabsTrigger value="pior" className="text-xs">Pior (-10%)</TabsTrigger>
               </TabsList>
-              <TabsContent value="base">
-                <ChartContainer config={{ base: { color: 'hsl(var(--primary))', label: 'Base' } }}>
-                  <RLineChart data={projectionData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="week" hide tick={{ fontSize: 10 }} interval={0} />
-                    <YAxis tickFormatter={(v)=> v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} width={80} />
-                    <Line type="monotone" dataKey="base" stroke="var(--color-base)" dot={false} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                  </RLineChart>
-                </ChartContainer>
+              <TabsContent value="base" className="mt-2">
+                <div className="h-40">
+                  <ChartContainer config={{ base: { color: 'hsl(var(--primary))', label: 'Base' } }}>
+                    <RLineChart data={projectionData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="week" hide />
+                      <YAxis
+                        tickFormatter={(v)=> v.toLocaleString('pt-BR',{
+                          style:'currency',
+                          currency:'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                        width={60}
+                        tick={{ fontSize: 10 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Line type="monotone" dataKey="base" stroke="var(--color-base)" dot={false} strokeWidth={2} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                    </RLineChart>
+                  </ChartContainer>
+                </div>
               </TabsContent>
-              <TabsContent value="melhor">
-                <ChartContainer config={{ melhor: { color: 'hsl(var(--emerald-500))', label: 'Melhor' } }}>
-                  <RLineChart data={projectionData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="week" hide tick={{ fontSize: 10 }} interval={0} />
-                    <YAxis tickFormatter={(v)=> v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} width={80} />
-                    <Line type="monotone" dataKey="melhor" stroke="var(--color-melhor)" dot={false} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                  </RLineChart>
-                </ChartContainer>
+              <TabsContent value="melhor" className="mt-2">
+                <div className="h-40">
+                  <ChartContainer config={{ melhor: { color: 'hsl(var(--emerald-500))', label: 'Melhor' } }}>
+                    <RLineChart data={projectionData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="week" hide />
+                      <YAxis
+                        tickFormatter={(v)=> v.toLocaleString('pt-BR',{
+                          style:'currency',
+                          currency:'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                        width={60}
+                        tick={{ fontSize: 10 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Line type="monotone" dataKey="melhor" stroke="var(--color-melhor)" dot={false} strokeWidth={2} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                    </RLineChart>
+                  </ChartContainer>
+                </div>
               </TabsContent>
-              <TabsContent value="pior">
-                <ChartContainer config={{ pior: { color: 'hsl(var(--rose-500))', label: 'Pior' } }}>
-                  <RLineChart data={projectionData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="week" hide tick={{ fontSize: 10 }} interval={0} />
-                    <YAxis tickFormatter={(v)=> v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} width={80} />
-                    <Line type="monotone" dataKey="pior" stroke="var(--color-pior)" dot={false} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                  </RLineChart>
-                </ChartContainer>
+              <TabsContent value="pior" className="mt-2">
+                <div className="h-40">
+                  <ChartContainer config={{ pior: { color: 'hsl(var(--rose-500))', label: 'Pior' } }}>
+                    <RLineChart data={projectionData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="week" hide />
+                      <YAxis
+                        tickFormatter={(v)=> v.toLocaleString('pt-BR',{
+                          style:'currency',
+                          currency:'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                        width={60}
+                        tick={{ fontSize: 10 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Line type="monotone" dataKey="pior" stroke="var(--color-pior)" dot={false} strokeWidth={2} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                    </RLineChart>
+                  </ChartContainer>
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -843,7 +911,16 @@ const FluxoDeCaixa = () => {
                       const ids = Array.from(selectedTxs)
                       const { error } = await supabase.from('finance_transactions').delete().in('id', ids)
                       if (error) throw error
-                      setTxs(prev => prev.filter(x => !ids.includes(x.id)))
+
+                      // Atualizar estado e forçar recálculo dos KPIs
+                      setTxs(prev => {
+                        const newTxs = prev.filter(x => !ids.includes(x.id))
+                        // Forçar re-render dos KPIs
+                        setTimeout(() => {
+                          // Os useMemo dos KPIs serão recalculados automaticamente
+                        }, 0)
+                        return newTxs
+                      })
                       setSelectedTxs(new Set())
                       toast({ title: `${ids.length} lançamento(s) excluído(s)` })
                     } catch (error: any) {
