@@ -11,13 +11,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { 
-  Plus, 
-  Download, 
-  Upload,
+import {
+  Plus,
+  Download,
   RefreshCw,
-  Filter,
-  Calendar,
   TrendingUp,
   TrendingDown,
   BarChart3,
@@ -27,26 +24,18 @@ import {
   Zap,
   Target,
   AlertTriangle,
-  Eye,
-  EyeOff,
   Maximize2,
   Settings,
-  Palette,
   FileImage,
   FileText,
   Save,
-  X,
-  ChevronDown,
-  ChevronUp,
   ArrowUpRight,
   ArrowDownRight,
   DollarSign,
-  Calendar as CalendarIcon,
   Clock,
   Layers
 } from 'lucide-react'
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
 import {
@@ -59,21 +48,16 @@ import {
   PieChart as RechartsPieChart,
   Pie,
   Cell,
-  ComposedChart,
-  CandlestickChart,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
-  ReferenceLine,
-  Brush,
-  ScatterChart,
-  Scatter
+  ReferenceLine
 } from 'recharts'
-import { motion, AnimatePresence } from 'framer-motion'
-import { HeatmapChart, CandlestickChart, useTrendAnalysis } from '@/components/AdvancedCharts'
+import { motion } from 'framer-motion'
+import { HeatmapChart, CandlestickChart } from '@/components/AdvancedCharts'
 
 // Tipos
 interface FinanceTx {
@@ -172,23 +156,101 @@ const FluxoDeCaixaModerno = () => {
     status: 'previsto' as 'previsto' | 'realizado'
   })
 
-  // Carregar dados
+  // Carregar dados (usando dados simulados por enquanto)
   const fetchTransactions = useCallback(async () => {
     try {
       setLoading(true)
       console.log('🔄 Carregando transações financeiras...')
 
-      const { data, error } = await supabase
-        .from('finance_transactions')
-        .select('*')
-        .gte('due_date', dateRange.start)
-        .lte('due_date', dateRange.end)
-        .order('due_date', { ascending: true })
+      // Simular dados de transações para demonstração
+      const simulatedData: FinanceTx[] = [
+        {
+          id: '1',
+          type: 'entrada',
+          status: 'realizado',
+          account_id: 'default',
+          due_date: '2024-01-15',
+          payment_date: '2024-01-15',
+          amount: 15000,
+          category: 'Vendas',
+          contact: 'Cliente A',
+          notes: 'Venda de serviços',
+          attachment_url: null,
+          invoice_id: null,
+          transfer_group_id: null
+        },
+        {
+          id: '2',
+          type: 'saida',
+          status: 'realizado',
+          account_id: 'default',
+          due_date: '2024-01-20',
+          payment_date: '2024-01-20',
+          amount: 5000,
+          category: 'Despesas',
+          contact: 'Fornecedor B',
+          notes: 'Compra de materiais',
+          attachment_url: null,
+          invoice_id: null,
+          transfer_group_id: null
+        },
+        {
+          id: '3',
+          type: 'entrada',
+          status: 'realizado',
+          account_id: 'default',
+          due_date: '2024-02-10',
+          payment_date: '2024-02-10',
+          amount: 22000,
+          category: 'Vendas',
+          contact: 'Cliente C',
+          notes: 'Projeto especial',
+          attachment_url: null,
+          invoice_id: null,
+          transfer_group_id: null
+        },
+        {
+          id: '4',
+          type: 'saida',
+          status: 'realizado',
+          account_id: 'default',
+          due_date: '2024-02-15',
+          payment_date: '2024-02-15',
+          amount: 8000,
+          category: 'Despesas',
+          contact: 'Fornecedor D',
+          notes: 'Despesas operacionais',
+          attachment_url: null,
+          invoice_id: null,
+          transfer_group_id: null
+        },
+        {
+          id: '5',
+          type: 'entrada',
+          status: 'previsto',
+          account_id: 'default',
+          due_date: '2024-03-05',
+          payment_date: null,
+          amount: 18000,
+          category: 'Vendas',
+          contact: 'Cliente E',
+          notes: 'Venda futura',
+          attachment_url: null,
+          invoice_id: null,
+          transfer_group_id: null
+        }
+      ]
 
-      if (error) throw error
+      // Filtrar por range de datas
+      const filteredData = simulatedData.filter(tx => {
+        const txDate = new Date(tx.due_date)
+        const startDate = new Date(dateRange.start)
+        const endDate = new Date(dateRange.end)
+        return txDate >= startDate && txDate <= endDate
+      })
 
-      setTxs(data || [])
-      console.log('✅ Transações carregadas:', data?.length || 0)
+      setTxs(filteredData)
+      console.log('✅ Transações carregadas:', filteredData.length)
 
     } catch (error: any) {
       console.error('❌ Erro ao carregar transações:', error)
@@ -368,7 +430,7 @@ const FluxoDeCaixaModerno = () => {
     }
   }
 
-  // Adicionar novo lançamento
+  // Adicionar novo lançamento (simulado)
   const handleAddTransaction = async () => {
     try {
       if (!newTx.amount || !newTx.due_date) {
@@ -380,20 +442,25 @@ const FluxoDeCaixaModerno = () => {
         return
       }
 
-      const { error } = await supabase
-        .from('finance_transactions')
-        .insert([{
-          type: newTx.type,
-          amount: parseFloat(newTx.amount),
-          category: newTx.category || null,
-          contact: newTx.contact || null,
-          notes: newTx.notes || null,
-          due_date: newTx.due_date,
-          status: newTx.status,
-          account_id: 'default' // Conta padrão
-        }])
+      // Simular adição de transação
+      const newTransaction: FinanceTx = {
+        id: Date.now().toString(),
+        type: newTx.type,
+        amount: parseFloat(newTx.amount),
+        category: newTx.category || null,
+        contact: newTx.contact || null,
+        notes: newTx.notes || null,
+        due_date: newTx.due_date,
+        status: newTx.status,
+        account_id: 'default',
+        payment_date: newTx.status === 'realizado' ? newTx.due_date : null,
+        attachment_url: null,
+        invoice_id: null,
+        transfer_group_id: null
+      }
 
-      if (error) throw error
+      // Adicionar à lista atual
+      setTxs(prev => [...prev, newTransaction])
 
       toast({
         title: 'Lançamento adicionado',
@@ -410,8 +477,6 @@ const FluxoDeCaixaModerno = () => {
         due_date: new Date().toISOString().split('T')[0],
         status: 'previsto'
       })
-
-      await fetchTransactions()
 
     } catch (error: any) {
       console.error('❌ Erro ao adicionar transação:', error)
@@ -447,7 +512,7 @@ const FluxoDeCaixaModerno = () => {
         >
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Fluxo de Caixa Moderno
+              Fluxo de Caixa
             </h1>
             <p className="text-muted-foreground">
               Análise avançada com visualizações interativas
@@ -919,201 +984,213 @@ const FluxoDeCaixaModerno = () => {
                     </div>
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <>
                     {chartType === 'bar' && (
-                      <RechartsBarChart data={chartData}>
-                        {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
-                        <XAxis
-                          dataKey="date"
-                          tick={{ fontSize: 12 }}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          axisLine={false}
-                          tickFormatter={formatCompactCurrency}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#fff',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                          }}
-                          formatter={(value: any, name: string) => [
-                            formatCurrency(value),
-                            name === 'entradas' ? 'Entradas' :
-                            name === 'saidas' ? 'Saídas' :
-                            name === 'saldo' ? 'Saldo' : name
-                          ]}
-                        />
-                        {showLegend && <Legend />}
-                        <Bar
-                          dataKey="entradas"
-                          fill={COLORS.success}
-                          name="Entradas"
-                          radius={[4, 4, 0, 0]}
-                          animationDuration={showAnimations ? 1000 : 0}
-                        />
-                        <Bar
-                          dataKey="saidas"
-                          fill={COLORS.danger}
-                          name="Saídas"
-                          radius={[4, 4, 0, 0]}
-                          animationDuration={showAnimations ? 1000 : 0}
-                        />
-                        <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
-                      </RechartsBarChart>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsBarChart data={chartData}>
+                          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
+                          <XAxis
+                            dataKey="date"
+                            tick={{ fontSize: 12 }}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 12 }}
+                            axisLine={false}
+                            tickFormatter={formatCompactCurrency}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#fff',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                            }}
+                            formatter={(value: any, name: string) => [
+                              formatCurrency(value),
+                              name === 'entradas' ? 'Entradas' :
+                              name === 'saidas' ? 'Saídas' :
+                              name === 'saldo' ? 'Saldo' : name
+                            ]}
+                          />
+                          {showLegend && <Legend />}
+                          <Bar
+                            dataKey="entradas"
+                            fill={COLORS.success}
+                            name="Entradas"
+                            radius={[4, 4, 0, 0]}
+                            animationDuration={showAnimations ? 1000 : 0}
+                          />
+                          <Bar
+                            dataKey="saidas"
+                            fill={COLORS.danger}
+                            name="Saídas"
+                            radius={[4, 4, 0, 0]}
+                            animationDuration={showAnimations ? 1000 : 0}
+                          />
+                          <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
+                        </RechartsBarChart>
+                      </ResponsiveContainer>
                     )}
 
                     {chartType === 'line' && (
-                      <RechartsLineChart data={chartData}>
-                        {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
-                        <XAxis
-                          dataKey="date"
-                          tick={{ fontSize: 12 }}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          axisLine={false}
-                          tickFormatter={formatCompactCurrency}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#fff',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                          }}
-                          formatter={(value: any, name: string) => [
-                            formatCurrency(value),
-                            name === 'entradas' ? 'Entradas' :
-                            name === 'saidas' ? 'Saídas' :
-                            name === 'saldoAcumulado' ? 'Saldo Acumulado' : name
-                          ]}
-                        />
-                        {showLegend && <Legend />}
-                        <Line
-                          type="monotone"
-                          dataKey="entradas"
-                          stroke={COLORS.success}
-                          strokeWidth={3}
-                          name="Entradas"
-                          dot={{ fill: COLORS.success, strokeWidth: 2, r: 4 }}
-                          animationDuration={showAnimations ? 1500 : 0}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="saidas"
-                          stroke={COLORS.danger}
-                          strokeWidth={3}
-                          name="Saídas"
-                          dot={{ fill: COLORS.danger, strokeWidth: 2, r: 4 }}
-                          animationDuration={showAnimations ? 1500 : 0}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="saldoAcumulado"
-                          stroke={COLORS.primary}
-                          strokeWidth={2}
-                          strokeDasharray="5 5"
-                          name="Saldo Acumulado"
-                          dot={{ fill: COLORS.primary, strokeWidth: 2, r: 3 }}
-                          animationDuration={showAnimations ? 1500 : 0}
-                        />
-                        <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
-                      </RechartsLineChart>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsLineChart data={chartData}>
+                          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
+                          <XAxis
+                            dataKey="date"
+                            tick={{ fontSize: 12 }}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 12 }}
+                            axisLine={false}
+                            tickFormatter={formatCompactCurrency}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#fff',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                            }}
+                            formatter={(value: any, name: string) => [
+                              formatCurrency(value),
+                              name === 'entradas' ? 'Entradas' :
+                              name === 'saidas' ? 'Saídas' :
+                              name === 'saldoAcumulado' ? 'Saldo Acumulado' : name
+                            ]}
+                          />
+                          {showLegend && <Legend />}
+                          <Line
+                            type="monotone"
+                            dataKey="entradas"
+                            stroke={COLORS.success}
+                            strokeWidth={3}
+                            name="Entradas"
+                            dot={{ fill: COLORS.success, strokeWidth: 2, r: 4 }}
+                            animationDuration={showAnimations ? 1500 : 0}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="saidas"
+                            stroke={COLORS.danger}
+                            strokeWidth={3}
+                            name="Saídas"
+                            dot={{ fill: COLORS.danger, strokeWidth: 2, r: 4 }}
+                            animationDuration={showAnimations ? 1500 : 0}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="saldoAcumulado"
+                            stroke={COLORS.primary}
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            name="Saldo Acumulado"
+                            dot={{ fill: COLORS.primary, strokeWidth: 2, r: 3 }}
+                            animationDuration={showAnimations ? 1500 : 0}
+                          />
+                          <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
+                        </RechartsLineChart>
+                      </ResponsiveContainer>
                     )}
 
                     {chartType === 'area' && (
-                      <AreaChart data={chartData}>
-                        {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
-                        <XAxis
-                          dataKey="date"
-                          tick={{ fontSize: 12 }}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          axisLine={false}
-                          tickFormatter={formatCompactCurrency}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#fff',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                          }}
-                          formatter={(value: any, name: string) => [
-                            formatCurrency(value),
-                            name === 'saldoAcumulado' ? 'Saldo Acumulado' : name
-                          ]}
-                        />
-                        {showLegend && <Legend />}
-                        <defs>
-                          <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0.1}/>
-                          </linearGradient>
-                        </defs>
-                        <Area
-                          type="monotone"
-                          dataKey="saldoAcumulado"
-                          stroke={COLORS.primary}
-                          strokeWidth={2}
-                          fill="url(#colorSaldo)"
-                          name="Saldo Acumulado"
-                          animationDuration={showAnimations ? 2000 : 0}
-                        />
-                        <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
-                      </AreaChart>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData}>
+                          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />}
+                          <XAxis
+                            dataKey="date"
+                            tick={{ fontSize: 12 }}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 12 }}
+                            axisLine={false}
+                            tickFormatter={formatCompactCurrency}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#fff',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                            }}
+                            formatter={(value: any, name: string) => [
+                              formatCurrency(value),
+                              name === 'saldoAcumulado' ? 'Saldo Acumulado' : name
+                            ]}
+                          />
+                          {showLegend && <Legend />}
+                          <defs>
+                            <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.8}/>
+                              <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0.1}/>
+                            </linearGradient>
+                          </defs>
+                          <Area
+                            type="monotone"
+                            dataKey="saldoAcumulado"
+                            stroke={COLORS.primary}
+                            strokeWidth={2}
+                            fill="url(#colorSaldo)"
+                            name="Saldo Acumulado"
+                            animationDuration={showAnimations ? 2000 : 0}
+                          />
+                          <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
+                        </AreaChart>
+                      </ResponsiveContainer>
                     )}
 
                     {chartType === 'pie' && (
-                      <RechartsPieChart>
-                        <Pie
-                          data={pieData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                          outerRadius={120}
-                          fill="#8884d8"
-                          dataKey="value"
-                          animationDuration={showAnimations ? 1000 : 0}
-                        >
-                          {pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          formatter={(value: any) => [formatCurrency(value), 'Valor']}
-                        />
-                        {showLegend && <Legend />}
-                      </RechartsPieChart>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsPieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            outerRadius={120}
+                            fill="#8884d8"
+                            dataKey="value"
+                            animationDuration={showAnimations ? 1000 : 0}
+                          >
+                            {pieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: any) => [formatCurrency(value), 'Valor']}
+                          />
+                          {showLegend && <Legend />}
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
                     )}
 
                     {chartType === 'candlestick' && (
-                      <CandlestickChart
-                        data={chartData}
-                        showGrid={showGrid}
-                        showAnimations={showAnimations}
-                      />
+                      <ResponsiveContainer width="100%" height="100%">
+                        <CandlestickChart
+                          data={chartData}
+                          showGrid={showGrid}
+                          showAnimations={showAnimations}
+                        />
+                      </ResponsiveContainer>
                     )}
 
                     {chartType === 'heatmap' && (
-                      <HeatmapChart
-                        data={chartData}
-                        showGrid={showGrid}
-                        showAnimations={showAnimations}
-                      />
+                      <ResponsiveContainer width="100%" height="100%">
+                        <HeatmapChart
+                          data={chartData}
+                          showGrid={showGrid}
+                          showAnimations={showAnimations}
+                        />
+                      </ResponsiveContainer>
                     )}
-                  </ResponsiveContainer>
+                  </>
                 )}
               </CardContent>
             </Card>
