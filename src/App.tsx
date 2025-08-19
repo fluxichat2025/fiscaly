@@ -17,7 +17,7 @@ import Relatorios from "./pages/Relatorios";
 import EmpresasFocus from "./pages/EmpresasFocus";
 import NotFound from "./pages/NotFound";
 import Tarefas from "./pages/Tarefas";
-import FluxoDeCaixa from "./pages/FluxoDeCaixa";
+import FluxoDeCaixaModerno from "./pages/FluxoDeCaixaModerno";
 import Recebimentos from "./pages/Recebimentos";
 import RelatoriosFinanceiros from "./pages/RelatoriosFinanceiros";
 import ContasPagar from "./pages/ContasPagar";
@@ -84,7 +84,7 @@ const App = () => (
             } />
             <Route path="/financeiro/fluxo-caixa" element={
               <ProtectedRoute>
-                <FluxoDeCaixa />
+                <FluxoDeCaixaModerno />
               </ProtectedRoute>
             } />
             <Route path="/financeiro/recebimentos" element={
