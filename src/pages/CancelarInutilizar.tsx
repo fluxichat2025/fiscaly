@@ -347,6 +347,26 @@ const CancelarInutilizar = () => {
         }
       }
 
+      // Atualizar status_processamento na tabela nfse_emitidas
+      try {
+        const { error: nfseUpdateError } = await supabase
+          .from('nfse_emitidas')
+          .update({
+            status_processamento: response.ok && responseData?.status === 'cancelado' ? 'cancelada' : 'cancelamento_solicitado',
+            status: responseData?.status || 'cancelamento_solicitado',
+            updated_at: new Date().toISOString()
+          })
+          .eq('referencia_rps', nfseSelecionada.referencia);
+
+        if (nfseUpdateError) {
+          console.error('❌ Erro ao atualizar nfse_emitidas:', nfseUpdateError);
+        } else {
+          console.log('✅ Status atualizado em nfse_emitidas');
+        }
+      } catch (nfseError) {
+        console.error('❌ Erro ao atualizar tabela nfse_emitidas:', nfseError);
+      }
+
       if (response.ok && responseData?.status === 'cancelado') {
         toast({
           title: "NFSe cancelada com sucesso",

@@ -162,6 +162,10 @@ export const useNFSeEmissionPopup = () => {
         // ListaMensagemRetorno (priorizar XML)
         lista_mensagem_retorno: xmlData?.lista_mensagem_retorno || '',
 
+        // URLs da NFSe (NOVOS CAMPOS)
+        url: nfseData.url, // URL de autenticação no portal da prefeitura
+        url_danfse: nfseData.url_danfse, // URL do PDF da DANFSE no S3
+
         // Metadados de controle
         empresa_id: empresaId,
         status_processamento: nfseData.status,
