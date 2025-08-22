@@ -413,7 +413,7 @@ const Configuracoes = () => {
         const { data: companyData, error: companyError } = await supabase
           .from('company_info')
           .select('*')
-          .eq('user_id', profile?.id)
+          .eq('user_id', profile?.user_id)
           .single()
 
         if (companyError && companyError.code !== 'PGRST116') {
@@ -422,9 +422,9 @@ const Configuracoes = () => {
         setCompanyInfo(companyData as CompanyInfo)
 
         // Verificar se o usuário é administrador
-        if (companyData?.id && profile?.id) {
+        if (companyData?.id && profile?.user_id) {
           console.log('🔍 Verificando permissões de admin para:', {
-            user_id: profile.id,
+            user_id: profile.user_id,
             company_id: companyData.id,
             profile_user_type: profile.user_type,
             profile_role: profile.role
@@ -438,7 +438,7 @@ const Configuracoes = () => {
           const { data: adminCheck, error: adminError } = await supabase
             .from('user_companies')
             .select('role, is_active')
-            .eq('user_id', profile.id)
+            .eq('user_id', profile.user_id)
             .eq('company_id', companyData.id)
 
           console.log('📊 Resultado da verificação user_companies:', { adminCheck, adminError })
@@ -450,7 +450,7 @@ const Configuracoes = () => {
             const { data: newUserCompany, error: insertError } = await supabase
               .from('user_companies')
               .insert([{
-                user_id: profile.id,
+                user_id: profile.user_id,
                 company_id: companyData.id,
                 role: isProfileAdmin ? 'administrador' : 'usuario',
                 is_active: true
@@ -527,10 +527,10 @@ const Configuracoes = () => {
       }
     }
 
-    if (profile?.id) {
+    if (profile?.user_id) {
       loadData()
     }
-  }, [profile?.id])
+  }, [profile?.user_id])
 
   // Função para salvar configuração
   const saveSetting = async (key: string, value: any) => {
