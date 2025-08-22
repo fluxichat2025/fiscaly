@@ -11,12 +11,13 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { 
-  User, 
-  Building2, 
-  DollarSign, 
-  Users, 
-  Plug, 
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import {
+  User,
+  Building2,
+  DollarSign,
+  Users,
+  Plug,
   Settings,
   Search,
   Plus,
@@ -165,6 +166,14 @@ type CostCenter = {
   active: boolean
   created_at: string
   updated_at: string
+type PermissionLevel = 'none' | 'view' | 'edit'
+
+type UserPagePermission = {
+  id: string
+  company_id: string
+  user_id: string
+  page_key: string
+  permission: PermissionLevel
 }
 
 type AuditLog = {
@@ -199,6 +208,103 @@ const Configuracoes = () => {
   const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([])
   const [userInvitations, setUserInvitations] = useState<UserInvitation[]>([])
   const [userAuditLogs, setUserAuditLogs] = useState<UserAuditLog[]>([])
+  // Permissões por página
+  const [isPermissionsOpen, setIsPermissionsOpen] = useState(false)
+  const [permissionTargetUser, setPermissionTargetUser] = useState<CompanyUser | null>(null)
+  const [permissionsLoading, setPermissionsLoading] = useState(false)
+  const [pagePermissions, setPagePermissions] = useState<Record<string, PermissionLevel>>({})
+
+  // Páginas do sistema para controle de permissão
+  const APP_PAGES: { key: string; label: string; url: string }[] = [
+    { key: 'dashboard', label: 'Dashboard', url: '/' },
+    { key: 'notas_nfe', label: 'Emitir NFe', url: '/notas/nfe' },
+    { key: 'notas_nfse', label: 'Emitir NFSe', url: '/notas/nfse' },
+    { key: 'notas_consultar', label: 'Consultar Notas', url: '/notas' },
+    { key: 'notas_empresas', label: 'Empresas', url: '/notas/empresas' },
+    { key: 'notas_cancelar', label: 'Cancelar/Inutilizar', url: '/notas/cancelar' },
+    { key: 'financeiro_fluxo_caixa', label: 'Fluxo de Caixa', url: '/financeiro/fluxo-caixa' },
+    { key: 'financeiro_recebimentos', label: 'Recebimentos', url: '/financeiro/recebimentos' },
+    { key: 'financeiro_relatorios', label: 'Relatórios Financeiros', url: '/financeiro/relatorios' },
+    { key: 'financeiro_contas_pagar', label: 'Contas a Pagar', url: '/financeiro/contas-pagar' },
+    { key: 'financeiro_conciliacao', label: 'Conciliação Bancária', url: '/financeiro/conciliacao' },
+    { key: 'imposto_renda', label: 'Imposto de Renda', url: '/imposto-renda' },
+    { key: 'relatorios', label: 'Relatórios', url: '/relatorios' },
+    { key: 'tarefas', label: 'Tarefas', url: '/tarefas' },
+    { key: 'configuracoes', label: 'Configurações', url: '/configuracoes' },
+  ]
+
+  const openPermissions = async (target: CompanyUser) => {
+    if (!companyInfo?.id || !isUserAdmin) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Apenas administradores podem alterar permissões',
+        variant: 'destructive'
+      })
+      return
+    }
+    setPermissionTargetUser(target)
+    setIsPermissionsOpen(true)
+    setPermissionsLoading(true)
+    try {
+      // Inicializar com 'none'
+      const initial: Record<string, PermissionLevel> = {}
+      APP_PAGES.forEach(p => { initial[p.key] = 'none' })
+
+      const { data, error } = await supabase
+        .from('user_page_permissions')
+        .select('page_key, permission')
+        .eq('company_id', companyInfo.id)
+        .eq('user_id', target.user_id)
+
+      if (error) throw error
+      if (data) {
+        data.forEach((row: any) => {
+          initial[row.page_key] = row.permission as PermissionLevel
+        })
+      }
+      setPagePermissions(initial)
+    } catch (err: any) {
+      toast({ title: 'Erro ao carregar permissões', description: err.message, variant: 'destructive' })
+    } finally {
+      setPermissionsLoading(false)
+    }
+  }
+
+  const savePermissions = async () => {
+    if (!companyInfo?.id || !permissionTargetUser || !isUserAdmin) return
+    try {
+      setPermissionsLoading(true)
+      const rows = APP_PAGES.map(p => ({
+        company_id: companyInfo.id,
+        user_id: permissionTargetUser.user_id,
+        page_key: p.key,
+        permission: pagePermissions[p.key] || 'none'
+      }))
+
+      const { error } = await supabase
+        .from('user_page_permissions')
+        .upsert(rows, { onConflict: 'company_id,user_id,page_key' } as any)
+
+      if (error) throw error
+
+      await supabase.rpc('log_user_action', {
+        p_company_id: companyInfo.id,
+        p_performed_by: user?.id,
+        p_target_user_id: permissionTargetUser.user_id,
+        p_action: 'atualizou permissões',
+        p_details: { permissions: pagePermissions }
+      })
+
+      toast({ title: 'Permissões salvas com sucesso' })
+      setIsPermissionsOpen(false)
+      setPermissionTargetUser(null)
+    } catch (err: any) {
+      toast({ title: 'Erro ao salvar permissões', description: err.message, variant: 'destructive' })
+    } finally {
+      setPermissionsLoading(false)
+    }
+  }
+
   const [isUserAdmin, setIsUserAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -434,7 +540,7 @@ const Configuracoes = () => {
 
       if (error) throw error
 
-      setSettings(prev => prev.map(s => 
+      setSettings(prev => prev.map(s =>
         s.key === key ? { ...s, value } : s
       ))
 
@@ -952,9 +1058,9 @@ const Configuracoes = () => {
           </div>
           <div className="relative w-80">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Buscar configurações..." 
-              value={globalSearch} 
+            <Input
+              placeholder="Buscar configurações..."
+              value={globalSearch}
               onChange={e => setGlobalSearch(e.target.value)}
               className="pl-10"
             />
@@ -2041,6 +2147,14 @@ const Configuracoes = () => {
                                   <Button
                                     size="sm"
                                     variant="outline"
+                                    onClick={() => openPermissions(companyUser)}
+                                    title="Permissões"
+                                  >
+                                    <Key className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
                                     onClick={() => toggleUserStatus(companyUser)}
                                   >
                                     {companyUser.is_active ? (
@@ -2874,6 +2988,67 @@ const Configuracoes = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+
+        {/* Modal Permissões por Página */}
+        <Dialog open={isPermissionsOpen} onOpenChange={setIsPermissionsOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Definir Permissões
+              </DialogTitle>
+            </DialogHeader>
+
+            {permissionTargetUser && (
+              <div className="mb-4 text-sm text-muted-foreground">
+                Usuário: <span className="font-medium">{permissionTargetUser.profiles?.first_name || permissionTargetUser.profiles?.email}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {APP_PAGES.map((page) => (
+                <Card key={page.key}>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-sm">{page.label}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <RadioGroup
+                      value={pagePermissions[page.key] || 'none'}
+                      onValueChange={(val: PermissionLevel) =>
+                        setPagePermissions(prev => ({ ...prev, [page.key]: val }))
+                      }
+                      className="grid grid-cols-3 gap-3"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="none" id={`${page.key}-none`} />
+                        <span>Nada</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="view" id={`${page.key}-view`} />
+                        <span>Visualizar</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem value="edit" id={`${page.key}-edit`} />
+                        <span>Editar</span>
+                      </label>
+                    </RadioGroup>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setIsPermissionsOpen(false)} disabled={permissionsLoading}>
+                Cancelar
+              </Button>
+              <Button onClick={savePermissions} disabled={permissionsLoading}>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                {permissionsLoading ? 'Salvando...' : 'Salvar Permissões'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
                     <SelectItem value="administrador">Administrador</SelectItem>
                     <SelectItem value="contador">Contador</SelectItem>
                     <SelectItem value="usuario">Usuário</SelectItem>
