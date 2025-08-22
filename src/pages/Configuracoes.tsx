@@ -166,6 +166,8 @@ type CostCenter = {
   active: boolean
   created_at: string
   updated_at: string
+}
+
 type PermissionLevel = 'none' | 'view' | 'edit'
 
 type UserPagePermission = {
