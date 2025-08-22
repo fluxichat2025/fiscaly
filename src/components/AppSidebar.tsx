@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { usePagePermissions } from "@/hooks/usePagePermissions";
 import {
   Sidebar,
   SidebarContent,
@@ -35,40 +36,40 @@ import {
 } from "lucide-react";
 
 const menuItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, pageKey: "dashboard" },
   {
     title: "Notas Fiscais",
     icon: FileText,
     submenu: [
-      { title: "Emitir NFe", url: "/notas/nfe", icon: FileText },
-      { title: "Emitir NFSe", url: "/notas/nfse", icon: FileText },
-      { title: "Consultar Notas", url: "/notas", icon: FileCheck },
-
-      { title: "Empresas", url: "/notas/empresas", icon: Building2 },
-      { title: "Cancelar/Inutilizar", url: "/notas/cancelar", icon: XCircle },
+      { title: "Emitir NFe", url: "/notas/nfe", icon: FileText, pageKey: "notas_nfe" },
+      { title: "Emitir NFSe", url: "/notas/nfse", icon: FileText, pageKey: "notas_nfse" },
+      { title: "Consultar Notas", url: "/notas", icon: FileCheck, pageKey: "notas_consultar" },
+      { title: "Empresas", url: "/notas/empresas", icon: Building2, pageKey: "notas_empresas" },
+      { title: "Cancelar/Inutilizar", url: "/notas/cancelar", icon: XCircle, pageKey: "notas_cancelar" },
     ]
   },
-  { 
-    title: "Financeiro", 
+  {
+    title: "Financeiro",
     icon: DollarSign,
     submenu: [
-      { title: "Fluxo de Caixa", url: "/financeiro/fluxo-caixa", icon: TrendingUp },
-      { title: "Recebimentos", url: "/financeiro/recebimentos", icon: Receipt },
-      { title: "Relatórios Financeiros", url: "/financeiro/relatorios", icon: BarChart3 },
-      { title: "Contas a Pagar", url: "/financeiro/contas-pagar", icon: PiggyBank },
-      { title: "Conciliação Bancária", url: "/financeiro/conciliacao", icon: CalculatorIcon },
+      { title: "Fluxo de Caixa", url: "/financeiro/fluxo-caixa", icon: TrendingUp, pageKey: "financeiro_fluxo_caixa" },
+      { title: "Recebimentos", url: "/financeiro/recebimentos", icon: Receipt, pageKey: "financeiro_recebimentos" },
+      { title: "Relatórios Financeiros", url: "/financeiro/relatorios", icon: BarChart3, pageKey: "financeiro_relatorios" },
+      { title: "Contas a Pagar", url: "/financeiro/contas-pagar", icon: PiggyBank, pageKey: "financeiro_contas_pagar" },
+      { title: "Conciliação Bancária", url: "/financeiro/conciliacao", icon: CalculatorIcon, pageKey: "financeiro_conciliacao" },
     ]
   },
-  { title: "Imposto de Renda", url: "/imposto-renda", icon: Calculator },
-  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
-  { title: "Tarefas", url: "/tarefas", icon: FileCheck },
-  { title: "Configurações", url: "/configuracoes", icon: Settings },
+  { title: "Imposto de Renda", url: "/imposto-renda", icon: Calculator, pageKey: "imposto_renda" },
+  { title: "Relatórios", url: "/relatorios", icon: BarChart3, pageKey: "relatorios" },
+  { title: "Tarefas", url: "/tarefas", icon: FileCheck, pageKey: "tarefas" },
+  { title: "Configurações", url: "/configuracoes", icon: Settings, pageKey: "configuracoes" },
 ];
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const { profile, signOut, isAdmin } = useAuth();
+  const { canView, loading: permissionsLoading } = usePagePermissions();
   const location = useLocation();
   const currentPath = location.pathname;
 
@@ -91,21 +92,41 @@ export function AppSidebar() {
 
   const filterSubmenuItems = (submenu: any[]) => {
     return submenu.filter(item => {
+      // Manter compatibilidade com adminOnly
       if (item.adminOnly) {
         return isAdmin;
+      }
+      // Filtrar por permissões se pageKey estiver definido
+      if (item.pageKey) {
+        return canView(item.pageKey);
       }
       return true;
     });
   };
 
-  const filterMenuItems = (menuItems: any[]) => {
-    return menuItems.filter(item => {
+  const filterMenuItems = (items: any[]) => {
+    return items.filter(item => {
+      // Se tem submenu, verificar se pelo menos um item do submenu é visível
+      if (item.submenu) {
+        const visibleSubmenuItems = filterSubmenuItems(item.submenu);
+        return visibleSubmenuItems.length > 0;
+      }
+
+      // Manter compatibilidade com adminOnly
       if (item.adminOnly) {
         return isAdmin;
       }
+
+      // Filtrar por permissões se pageKey estiver definido
+      if (item.pageKey) {
+        return canView(item.pageKey);
+      }
+
       return true;
     });
   };
+
+
 
   return (
     <Sidebar className="border-r border-sidebar-border bg-sidebar">

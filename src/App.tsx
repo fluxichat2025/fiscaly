@@ -37,83 +37,83 @@ const App = () => (
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="dashboard">
                 <Index />
               </ProtectedRoute>
             } />
             <Route path="/notas" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="notas_consultar">
                 <ConsultarNFSeSimples />
               </ProtectedRoute>
             } />
             <Route path="/notas/consultar" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="notas_consultar">
                 <ConsultarNotasGeral />
               </ProtectedRoute>
             } />
             <Route path="/notas/nfe" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="notas_nfe" requiredPermission="edit">
                 <EmitirNFe />
               </ProtectedRoute>
             } />
             <Route path="/notas/nfse" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="notas_nfse" requiredPermission="edit">
                 <EmitirNFSe />
               </ProtectedRoute>
             } />
 
             <Route path="/notas/cancelar" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="notas_cancelar" requiredPermission="edit">
                 <CancelarInutilizar />
               </ProtectedRoute>
             } />
             <Route path="/notas/empresas" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="notas_empresas">
                 <EmpresasFocus />
               </ProtectedRoute>
             } />
             <Route path="/relatorios" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="relatorios">
                 <Relatorios />
               </ProtectedRoute>
             } />
             <Route path="/tarefas" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="tarefas">
                 <Tarefas />
               </ProtectedRoute>
             } />
             <Route path="/financeiro/fluxo-caixa" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="financeiro_fluxo_caixa">
                 <FluxoDeCaixaModerno />
               </ProtectedRoute>
             } />
             <Route path="/financeiro/recebimentos" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="financeiro_recebimentos">
                 <Recebimentos />
               </ProtectedRoute>
             } />
             <Route path="/financeiro/relatorios" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="financeiro_relatorios">
                 <RelatoriosFinanceiros />
               </ProtectedRoute>
             } />
             <Route path="/financeiro/contas-pagar" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="financeiro_contas_pagar">
                 <ContasPagar />
               </ProtectedRoute>
             } />
             <Route path="/financeiro/conciliacao" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="financeiro_conciliacao">
                 <ConciliacaoBancaria />
               </ProtectedRoute>
             } />
             <Route path="/imposto-renda" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="imposto_renda">
                 <ImpostoRenda />
               </ProtectedRoute>
             } />
             <Route path="/configuracoes" element={
-              <ProtectedRoute>
+              <ProtectedRoute pageKey="configuracoes">
                 <Configuracoes />
               </ProtectedRoute>
             } />
