@@ -352,7 +352,7 @@ const Configuracoes = () => {
       setLoading(true)
       try {
         // Carregar configurações do sistema
-        const { data: settingsData, error: settingsError } = await supabase
+        const { data: settingsData, error: settingsError } = await (supabase as any)
           .from('app_settings')
           .select('*')
           .order('category', { ascending: true })
@@ -361,10 +361,10 @@ const Configuracoes = () => {
         setSettings(settingsData as AppSetting[])
 
         // Carregar preferências do usuário
-        const { data: preferencesData, error: preferencesError } = await supabase
+        const { data: preferencesData, error: preferencesError } = await (supabase as any)
           .from('user_preferences')
           .select('*')
-          .eq('user_id', profile?.id)
+          .eq('user_id', profile?.user_id)
           .single()
 
         if (preferencesError && preferencesError.code !== 'PGRST116') {
@@ -473,23 +473,43 @@ const Configuracoes = () => {
 
           // Carregar usuários da empresa (apenas se for admin)
           if (isAdmin) {
-            const { data: usersData, error: usersError } = await supabase
-              .from('user_companies')
-              .select(`
-                *,
-                profiles:user_id (
-                  id,
-                  first_name,
-                  email,
-                  avatar_url,
-                  phone
-                )
-              `)
-              .eq('company_id', companyData.id)
-              .order('created_at', { ascending: false })
+            try {
+              // Primeiro, carregar os registros de user_companies
+              const { data: userCompaniesData, error: usersError } = await (supabase as any)
+                .from('user_companies')
+                .select('*')
+                .eq('company_id', companyData.id)
+                .order('created_at', { ascending: false })
 
-            if (usersError) throw usersError
-            setCompanyUsers((usersData || []) as CompanyUser[])
+              if (usersError) {
+                console.warn('Erro ao carregar user_companies:', usersError)
+                setCompanyUsers([])
+              } else if (userCompaniesData && userCompaniesData.length > 0) {
+                // Depois, carregar os perfis dos usuários
+                const userIds = userCompaniesData.map((uc: any) => uc.user_id)
+                const { data: profilesData, error: profilesError } = await supabase
+                  .from('profiles')
+                  .select('id, user_id, first_name, email, phone')
+                  .in('user_id', userIds)
+
+                if (profilesError) {
+                  console.warn('Erro ao carregar perfis:', profilesError)
+                }
+
+                // Combinar os dados
+                const combinedData = userCompaniesData.map((uc: any) => ({
+                  ...uc,
+                  profiles: profilesData?.find((p: any) => p.user_id === uc.user_id) || null
+                }))
+
+                setCompanyUsers(combinedData as CompanyUser[])
+              } else {
+                setCompanyUsers([])
+              }
+            } catch (error) {
+              console.warn('Erro geral ao carregar usuários:', error)
+              setCompanyUsers([])
+            }
 
             // Carregar convites pendentes (temporariamente comentado devido a problemas de tipos)
             // const { data: invitationsData, error: invitationsError } = await supabase
@@ -534,7 +554,7 @@ const Configuracoes = () => {
   // Função para salvar configuração
   const saveSetting = async (key: string, value: any) => {
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('app_settings')
         .update({ value: JSON.stringify(value) })
         .eq('key', key)
@@ -560,19 +580,19 @@ const Configuracoes = () => {
   const savePreference = async (field: string, value: any) => {
     try {
       if (preferences) {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('user_preferences')
           .update({ [field]: value })
-          .eq('user_id', profile?.id)
+          .eq('user_id', profile?.user_id)
 
         if (error) throw error
 
         setPreferences(prev => prev ? { ...prev, [field]: value } : null)
       } else {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('user_preferences')
           .insert([{
-            user_id: profile?.id,
+            user_id: profile?.user_id,
             [field]: value
           }])
           .select()
